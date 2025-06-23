@@ -41,7 +41,8 @@ const historyRecords = ref([])
 // 使用 Tailwind CSS 类来动态计算网格布局
 const resultGridClass = computed(() => {
   const count = pickedNames.value.length;
-  const baseClass = 'grid h-full w-full items-center justify-center gap-4 p-4';
+  // 网格容器上的 h-full 类与滚动需求的冲突。h-full 强制网格高度等于父容器高度，导致滚动条无法显示。
+  const baseClass = `grid ${count >= 50 ? '' : 'h-full'} w-full items-center justify-center gap-4 p-4`;
   
   // 0人处理
   if (count === 0) return '';
@@ -77,7 +78,7 @@ const resultGridClass = computed(() => {
     if (bestLayout) {
       const rowsClass = bestLayout.rows <= 6 
         ? `grid-rows-${bestLayout.rows}` 
-        : 'grid-rows-[7]';
+        : 'grid-rows-7';
       
       return `${baseClass} grid-cols-${bestLayout.cols} ${rowsClass}`;
     }
@@ -87,7 +88,7 @@ const resultGridClass = computed(() => {
   if (count === 50) return `${baseClass} grid-cols-10 grid-rows-5`;
   
   // 51人以上：固定8×7布局（最多容纳56人）
-  return `${baseClass} grid-cols-8 grid-rows-[7]`;
+  return `${baseClass} grid-cols-8 grid-rows-7`;
 });
 
 // 使用 Tailwind CSS 类来动态计算卡片样式
