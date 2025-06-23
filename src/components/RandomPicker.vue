@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Upload } from '@element-plus/icons-vue'
 import confetti from 'canvas-confetti'
@@ -37,6 +37,101 @@ let drawingTimer = null
 const fileInputRef = ref(null)
 // 历史记录
 const historyRecords = ref([])
+
+// 使用 Tailwind CSS 类来动态计算网格布局
+const resultGridClass = computed(() => {
+  const count = pickedNames.value.length;
+  const baseClass = 'grid h-full w-full items-center justify-center gap-4 p-4';
+  
+  // 0人处理
+  if (count === 0) return '';
+  
+  // 1-2人特殊处理
+  if (count === 1) return `${baseClass} grid-cols-1 grid-rows-1`;
+  if (count === 2) return `${baseClass} grid-cols-2 grid-rows-1`;
+  
+  // 3-49人：动态计算最优网格
+  if (count <= 49) {
+    // 寻找最接近平方根的行数作为起点
+    const startRows = Math.min(7, Math.max(2, Math.round(Math.sqrt(count))));
+    let bestLayout = null;
+    
+    // 遍历可能的行数配置 (2-7行)
+    for (let rows = startRows; rows >= 2; rows--) {
+      // 计算需要的列数
+      const cols = Math.ceil(count / rows);
+      
+      // 列数不能超过7（保持格子足够大）
+      if (cols > 7) continue;
+      
+      // 计算空闲格子数
+      const emptySlots = rows * cols - count;
+      
+      // 首次找到的布局或找到更优布局时更新
+      if (!bestLayout || emptySlots < bestLayout.emptySlots) {
+        bestLayout = { rows, cols, emptySlots };
+      }
+    }
+    
+    // 使用找到的最佳布局
+    if (bestLayout) {
+      const rowsClass = bestLayout.rows <= 6 
+        ? `grid-rows-${bestLayout.rows}` 
+        : 'grid-rows-[7]';
+      
+      return `${baseClass} grid-cols-${bestLayout.cols} ${rowsClass}`;
+    }
+  }
+  
+  // 50人特殊布局
+  if (count === 50) return `${baseClass} grid-cols-10 grid-rows-5`;
+  
+  // 51人以上：固定8×7布局（最多容纳56人）
+  return `${baseClass} grid-cols-8 grid-rows-[7]`;
+});
+
+// 使用 Tailwind CSS 类来动态计算卡片样式
+const nameCardClass = computed(() => {
+  const count = pickedNames.value.length
+  const baseClass = 'flex items-center justify-center text-center font-bold rounded-lg shadow-md transition-all duration-300 w-full h-full bg-blue-100 text-blue-600 border border-blue-200 hover:scale-105 hover:shadow-lg'
+  
+  if (count === 0) return ''
+  if (count === 1) return `${baseClass} text-[22rem]`   
+  if (count <= 4) return `${baseClass} text-[11rem]` 
+  if (count <= 9) return `${baseClass} text-[7.7rem]`  
+  if (count <= 16) return `${baseClass} text-[5.7rem]`  
+  if (count <= 25) return `${baseClass} text-[4.7rem]`  
+  if (count <= 36) return `${baseClass} text-[3.7rem]`  
+  if (count <= 49) return `${baseClass} text-[3.1rem]` 
+  return `${baseClass} text-[2.8rem]`
+})
+
+// 根据名字长度动态调整字体大小
+const getNameStyle = (name) => {
+  if (!name) return {}
+  const length = name.length
+  
+  // 针对4字名处理
+  if (length === 4) {
+    return { 
+      fontSize: '0.8em', 
+      letterSpacing: '-0.05em',
+      transform: 'scale(0.95)',
+      display: 'inline-block'
+    }
+  }
+  
+  // 针对2字名处理
+  if (length === 2) {
+    return { 
+      letterSpacing: '0.2em',
+      transform: 'scale(1.05)',
+      display: 'inline-block'
+    }
+  }
+  
+  return {}
+}
 
 // 监听名单变化，调整抽取人数
 const adjustPickCount = () => {
@@ -174,7 +269,7 @@ const stopDraw = () => {
 
 // 触发烟花效果
 const triggerConfetti = () => {
-  const count = 200
+  const count = 500
   const defaults = {
     origin: { y: 0.7 }
   }
@@ -253,6 +348,9 @@ const exportHistory = () => {
   URL.revokeObjectURL(link.href)
   ElMessage.success('历史记录导出成功')
 }
+
+// 获取当前年份
+const currentYear = computed(() => new Date().getFullYear())
 </script>
 
 <template>
@@ -264,7 +362,7 @@ const exportHistory = () => {
         <el-card class="input-card">
           <template #header>
             <div class="card-header">
-              <span>输入名单（每行一个名字）</span>
+              <span>输入名单<br>(一行一名)</span>
               <div class="header-buttons">
                 <el-button type="primary" @click="triggerFileSelect" :disabled="isDrawing">
                   <el-icon><Upload /></el-icon>导入名单
@@ -283,17 +381,22 @@ const exportHistory = () => {
           <el-input
             v-model="nameInput"
             type="textarea"
-            :rows="8"
             placeholder="请输入名单，每行一个名字，或者点击上方的导入按钮选择文本文件"
             :disabled="isDrawing"
             @input="adjustPickCount"
           />
           <div class="name-count">
-            已输入: <span class="highlight">{{ nameList.length }}</span> 人
-            <span v-if="allPickedNames.length > 0" class="picked-info">
-              已抽取: <span class="highlight">{{ allPickedNames.length }}</span> 人
-              (剩余: <span class="highlight">{{ nameList.length - allPickedNames.length }}</span> 人)
-            </span>
+            <div>
+              已输入: <span class="highlight">{{ nameList.length }}</span> 人
+              <span v-if="allPickedNames.length > 0" class="picked-info">
+                已抽取: <span class="highlight">{{ allPickedNames.length }}</span> 人
+                <br>
+                (剩余: <span class="highlight">{{ nameList.length - allPickedNames.length }}</span> 人)
+              </span>
+            </div>
+            <div class="copyright-footer">
+              © {{ currentYear }} 信息科组小李. All Rights Reserved.
+            </div>
           </div>
         </el-card>
       </div>
@@ -311,9 +414,11 @@ const exportHistory = () => {
             <div v-if="pickedNames.length === 0" class="empty-result">
               <el-empty description="等待抽取结果" />
             </div>
-            <div v-else class="result-list">
-              <div v-for="(name, index) in pickedNames" :key="index" class="result-item">
-                <div class="name-card">{{ name }}</div>
+            <div v-else :class="resultGridClass">
+              <div v-for="(name, index) in pickedNames" :key="index" class="w-full h-full">
+                <div :class="nameCardClass">
+                  <span :style="getNameStyle(name)">{{ name }}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -391,7 +496,7 @@ const exportHistory = () => {
             <span>历史抽取记录</span>
             <el-button
               type="success"
-              size="large"
+              size="small"
               @click="exportHistory"
               :disabled="historyRecords.length === 0"
             >
@@ -440,7 +545,7 @@ const exportHistory = () => {
 .main-content {
   flex: 1;
   display: grid;
-  grid-template-columns: 0.6fr 1.4fr;
+  grid-template-columns: 0.1fr 1.9fr;
   grid-template-rows: 1fr auto;
   gap: 10px;
   padding: 10px;
@@ -483,7 +588,7 @@ const exportHistory = () => {
 }
 
 .history-panel {
-  flex: 0 0 200px; /* 固定高度 */
+  flex: 0 0 170px;
   padding: 0 10px 10px 10px;
   display: flex;
   flex-direction: column;
@@ -517,10 +622,19 @@ const exportHistory = () => {
   margin-top: 10px;
   text-align: right;
   color: #606266;
+  min-height: 100px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
 }
 
 .picked-info {
   margin-left: 15px;
+}
+
+.copyright-footer {
+  font-size: 12px;
+  color: #909399;
 }
 
 .highlight {
@@ -580,37 +694,6 @@ const exportHistory = () => {
   justify-content: center;
 }
 
-.result-list {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
-  gap: 15px;
-  padding: 15px;
-}
-
-.result-item {
-  display: flex;
-  justify-content: center;
-}
-
-.name-card {
-  background-color: #ecf5ff;
-  border: 1px solid #d9ecff;
-  color: #409EFF;
-  border-radius: 5px;
-  padding: 15px 10px;
-  font-size: 18px;
-  font-weight: bold;
-  text-align: center;
-  width: 100%;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-  transition: all 0.3s;
-}
-
-.name-card:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-}
-
 .history-list {
   display: flex;
   flex-direction: column;
@@ -621,6 +704,7 @@ const exportHistory = () => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  height: auto;
 }
 
 .history-batch-header {
@@ -662,6 +746,14 @@ const exportHistory = () => {
   height: 100% !important;
 }
 
+.history-card :deep(.el-card__body) {
+  height: 100%;
+}
+
+.history-card :deep(.el-card__header) {
+  padding: 10px 20px;
+}
+
 @media (max-width: 1200px) {
   .main-content {
     grid-template-columns: 1fr;
@@ -670,16 +762,6 @@ const exportHistory = () => {
       "input"
       "control"
       "result";
-  }
-  
-  .result-list {
-    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
-    gap: 10px;
-  }
-  
-  .name-card {
-    padding: 10px 5px;
-    font-size: 16px;
   }
 }
 </style> 
