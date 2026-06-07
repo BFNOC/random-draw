@@ -76,8 +76,8 @@ const gridStyle = computed(() => {
     cols = 2; rows = 2;
   } else if (count <= 6) {
     cols = 3; rows = 2;
-  } else if (count <= 9) {
-    cols = 3; rows = 3;
+  } else if (count <= 8) {
+    cols = 4; rows = 2;
   } else if (count <= 12) {
     cols = 4; rows = 3;
   } else if (count <= 16) {
@@ -106,46 +106,52 @@ const gridStyle = computed(() => {
     display: 'grid',
     gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
     gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
-    gap: count <= 12 ? '24px' : count <= 30 ? '16px' : '10px',
+    gap: count <= 4 ? '22px' : count <= 12 ? '18px' : count <= 30 ? '12px' : '8px',
     width: '100%',
     height: '100%',
   }
 })
 
-// 根据卡片总数计算基础字体大小与边距 (针对户外大屏特意做特大字体适配)
+// 根据卡片总数计算基础字体大小与边距，优先保证 1 到 50 人在大屏上可读。
 const nameCardStyle = computed(() => {
   const count = pickedNames.value.length
-  let fontSize = '2rem'
+  let fontSize = 'clamp(1.35rem, 2vw, 2.6rem)'
   let padding = '1rem'
   
   if (count === 1) {
-    fontSize = '14vw'
-    padding = '2rem'
+    fontSize = 'clamp(8rem, 17vw, 22rem)'
+    padding = '3rem'
   } else if (count === 2) {
-    fontSize = '9.5vw'
-    padding = '1.8rem'
+    fontSize = 'clamp(6rem, 12vw, 16rem)'
+    padding = '2.5rem'
   } else if (count <= 4) {
-    fontSize = '7.5vw'
-    padding = '1.5rem'
+    fontSize = 'clamp(4.8rem, 9vw, 12rem)'
+    padding = '2rem'
+  } else if (count <= 8) {
+    fontSize = 'clamp(4rem, 7vw, 9rem)'
+    padding = '1.4rem'
   } else if (count <= 9) {
-    fontSize = '5.8vw'
+    fontSize = 'clamp(3.6rem, 6vw, 8rem)'
     padding = '1.2rem'
-  } else if (count <= 16) {
-    fontSize = '4.3vw'
+  } else if (count <= 12) {
+    fontSize = 'clamp(3.1rem, 5vw, 6.8rem)'
     padding = '1rem'
+  } else if (count <= 16) {
+    fontSize = 'clamp(2.55rem, 4.25vw, 5.8rem)'
+    padding = '0.9rem'
   } else if (count <= 25) {
-    fontSize = '3.3vw'
-    padding = '0.8rem'
+    fontSize = 'clamp(2rem, 3.3vw, 4.5rem)'
+    padding = '0.65rem'
   } else if (count <= 36) {
-    fontSize = '2.7vw'
-    padding = '0.6rem'
+    fontSize = 'clamp(1.65rem, 2.65vw, 3.5rem)'
+    padding = '0.55rem'
   } else if (count <= 49) {
-    fontSize = '2.3vw'
-    padding = '0.5rem'
+    fontSize = 'clamp(1.45rem, 2.25vw, 3rem)'
+    padding = '0.45rem'
   } else {
     // 50人及以上
-    fontSize = '1.95vw'
-    padding = '0.4rem'
+    fontSize = 'clamp(1.35rem, 1.95vw, 2.6rem)'
+    padding = '0.35rem'
   }
   
   return {
@@ -161,13 +167,11 @@ const getNameStyle = (name) => {
   const styles = { ...nameCardStyle.value }
   
   if (length >= 4) {
-    styles.fontSize = `calc(${styles.fontSize} * 0.72)`
-    styles.letterSpacing = '-0.03em'
+    styles.fontSize = `calc(${styles.fontSize} * 0.74)`
   } else if (length === 3) {
-    styles.letterSpacing = '0.08em'
+    styles.fontSize = `calc(${styles.fontSize} * 0.9)`
   } else if (length === 2) {
-    styles.letterSpacing = '0.4em'
-    styles.textIndent = '0.4em' // 居中修正
+    styles.fontSize = `calc(${styles.fontSize} * 1.02)`
   }
   
   return styles
@@ -729,55 +733,69 @@ const currentYear = computed(() => new Date().getFullYear())
   overflow: hidden;
   position: relative;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #1d1d1f;
+  color: #151a23;
 }
 
-/* 动态科技背景 - 浅色 Apple 风格 */
+/* 浅色大屏背景：细网格负责科技感，避免影响姓名可读性。 */
 .dynamic-background {
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
-  background-color: #f5f5f7;
+  background:
+    linear-gradient(rgba(91, 124, 168, 0.08) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(91, 124, 168, 0.08) 1px, transparent 1px),
+    linear-gradient(120deg, rgba(20, 118, 240, 0.08), transparent 38%),
+    linear-gradient(300deg, rgba(0, 176, 148, 0.06), transparent 34%),
+    #f3f7fb;
+  background-size: 44px 44px, 44px 44px, 100% 100%, 100% 100%, auto;
   overflow: hidden;
   z-index: 0;
 }
 
+.dynamic-background::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0%, rgba(38, 119, 240, 0.12) 48%, transparent 52%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent 28%, rgba(255, 255, 255, 0.68));
+  opacity: 0.72;
+  pointer-events: none;
+}
+
 .ambient-glow {
   position: absolute;
-  border-radius: 50%;
-  filter: blur(140px);
-  opacity: 0.45;
-  mix-blend-mode: multiply;
+  border-radius: 0;
+  filter: none;
+  opacity: 1;
+  mix-blend-mode: normal;
   pointer-events: none;
-  animation: floatAmbient 20s infinite alternate ease-in-out;
 }
 
 .glow-1 {
-  width: 50vw;
-  height: 50vw;
-  background: radial-gradient(circle, rgba(0, 122, 255, 0.18) 0%, transparent 70%);
-  top: -15%;
-  left: -10%;
+  width: 100%;
+  height: 2px;
+  top: 72px;
+  left: 0;
+  background: linear-gradient(90deg, transparent, rgba(20, 118, 240, 0.45), transparent);
 }
 
 .glow-2 {
-  width: 60vw;
-  height: 60vw;
-  background: radial-gradient(circle, rgba(175, 82, 222, 0.14) 0%, transparent 70%);
-  bottom: -20%;
-  right: -10%;
-  animation-delay: -5s;
+  width: 100%;
+  height: 34%;
+  bottom: 0;
+  right: 0;
+  background: linear-gradient(180deg, transparent, rgba(229, 236, 246, 0.84));
 }
 
 .glow-3 {
-  width: 45vw;
-  height: 45vw;
-  background: radial-gradient(circle, rgba(52, 199, 89, 0.08) 0%, transparent 70%);
-  top: 30%;
-  left: 40%;
-  animation-delay: -10s;
+  width: 34%;
+  height: 100%;
+  top: 0;
+  right: 7%;
+  background: linear-gradient(90deg, transparent, rgba(0, 176, 148, 0.08), transparent);
 }
 
 @keyframes floatAmbient {
@@ -797,7 +815,7 @@ const currentYear = computed(() => new Date().getFullYear())
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 16px 24px 12px 24px; /* 上下内边距收窄 */
+  padding: 12px 18px 10px 18px;
   box-sizing: border-box;
 }
 
@@ -822,16 +840,15 @@ const currentYear = computed(() => new Date().getFullYear())
 
 /* 汇总信息卡片置于正中间 */
 .center-dashboard-card {
-  backdrop-filter: blur(30px);
-  background: rgba(255, 255, 255, 0.75);
-  border: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.95);
-  border-radius: 32px;
-  padding: 44px 52px;
+  background: rgba(249, 252, 255, 0.9);
+  border: 1px solid rgba(112, 141, 178, 0.22);
+  box-shadow: 0 24px 62px rgba(34, 63, 103, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92);
+  border-radius: 16px;
+  padding: 38px 46px;
   text-align: left;
   display: flex;
   flex-direction: column;
-  width: 580px;
+  width: min(620px, calc(100vw - 48px));
   box-sizing: border-box;
   animation: zoomFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
@@ -856,7 +873,7 @@ const currentYear = computed(() => new Date().getFullYear())
 
 .dashboard-icon {
   font-size: 24px;
-  color: #007aff;
+  color: #1476f0;
 }
 
 .standby-copy {
@@ -868,21 +885,21 @@ const currentYear = computed(() => new Date().getFullYear())
 .dashboard-title {
   font-size: 24px;
   font-weight: 800;
-  color: #1d1d1f;
-  letter-spacing: -0.01em;
+  color: #151a23;
+  letter-spacing: 0;
 }
 
 .dashboard-subtitle {
   font-size: 14px;
   line-height: 1.4;
-  color: #86868b;
+  color: #667489;
   font-weight: 600;
 }
 
 .dashboard-divider {
   width: 100%;
   height: 1px;
-  background: rgba(0, 0, 0, 0.06);
+  background: rgba(82, 112, 151, 0.14);
   margin-bottom: 22px;
 }
 
@@ -899,8 +916,8 @@ const currentYear = computed(() => new Date().getFullYear())
   align-items: center;
   font-size: 16px;
   font-weight: 600;
-  color: #86868b;
-  border-bottom: 1px dashed rgba(0, 0, 0, 0.04);
+  color: #667489;
+  border-bottom: 1px solid rgba(82, 112, 151, 0.1);
   padding-bottom: 6px;
 }
 
@@ -911,30 +928,31 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .stat-item .stat-label {
-  color: #86868b;
+  color: #667489;
 }
 
 .stat-item .stat-val {
-  color: #1d1d1f;
+  color: #151a23;
   font-weight: 700;
 }
 
 .stat-item .stat-val.highlight {
-  color: #1d1d1f;
+  color: #151a23;
 }
 
 .stat-item .stat-val.highlight-blue {
-  color: #007aff;
+  color: #1476f0;
 }
 
 .stat-item .stat-val.highlight-green {
-  color: #34c759;
+  color: #009c7f;
 }
 
 .grid-animation-wrapper {
   width: 100%;
   height: 100%;
   box-sizing: border-box;
+  padding: 4px 0;
 }
 
 .interactive-grid {
@@ -955,55 +973,66 @@ const currentYear = computed(() => new Date().getFullYear())
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.85);
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.8);
-  backdrop-filter: blur(10px);
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(253, 254, 255, 0.98), rgba(243, 248, 253, 0.94));
+  border: 1px solid rgba(97, 128, 168, 0.2);
+  box-shadow: 0 10px 28px rgba(32, 65, 105, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.94);
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
-  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: transform 0.24s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.24s ease, box-shadow 0.24s ease;
+}
+
+.name-card::before {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border: 1px solid rgba(20, 118, 240, 0.1);
+  border-radius: 5px;
+  pointer-events: none;
 }
 
 /* 滚动抽签状态 */
 .name-card.is-rolling {
-  transform: scale(0.96);
-  background: rgba(255, 255, 255, 0.95);
-  border-color: rgba(0, 122, 255, 0.35);
-  box-shadow: 0 0 24px rgba(0, 122, 255, 0.14);
+  transform: scale(0.985);
+  background:
+    linear-gradient(180deg, rgba(246, 251, 255, 0.98), rgba(236, 246, 255, 0.96));
+  border-color: rgba(20, 118, 240, 0.48);
+  box-shadow: 0 0 0 1px rgba(20, 118, 240, 0.12), 0 14px 32px rgba(20, 118, 240, 0.13);
 }
 
 .name-card.is-rolling .name-text {
-  filter: blur(0.6px);
-  opacity: 0.85;
-  color: #007aff; /* 滚动时名字呈现亮眼的苹果科技蓝 */
+  filter: blur(0.3px);
+  opacity: 0.9;
+  color: #1476f0;
 }
 
 /* 揭晓锁定状态 */
 .name-card.is-revealed {
-  animation: revealSpring 0.55s cubic-bezier(0.175, 0.885, 0.32, 1.25) forwards;
-  background: linear-gradient(135deg, #ffffff 0%, #fbfbfd 100%);
-  border-color: rgba(212, 175, 55, 0.35); /* 精致的淡金色边框，富有高级感 */
-  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  animation: revealSpring 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 254, 0.96));
+  border-color: rgba(0, 156, 127, 0.48);
+  box-shadow: 0 0 0 1px rgba(0, 156, 127, 0.1), 0 14px 34px rgba(25, 63, 103, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
 .name-card.is-revealed .name-text {
-  color: #1d1d1f;
-  font-weight: 900; /* 特粗设计，大屏视觉可读性最强 */
-  text-shadow: 0 1px 2px rgba(0,0,0,0.02);
+  color: #111723;
+  font-weight: 900;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
 }
 
-/* 顶部科技感双色微渐变饰条 */
+/* 顶部状态线用于提示揭晓完成，不抢人名。 */
 .name-card.is-revealed::after {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
-  height: 5px;
-  background: linear-gradient(90deg, #007aff, #8962e7);
-  opacity: 0.95;
+  height: 4px;
+  background: linear-gradient(90deg, #1476f0, #00a889);
+  opacity: 0.92;
 }
 
 @keyframes revealSpring {
@@ -1020,9 +1049,15 @@ const currentYear = computed(() => new Date().getFullYear())
 .name-text {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "SF Pro Text", "PingFang SC", sans-serif;
   text-align: center;
-  transition: all 0.3s ease;
+  transition: color 0.2s ease, opacity 0.2s ease, filter 0.2s ease;
   white-space: nowrap;
-  line-height: 1.1;
+  line-height: 1;
+  letter-spacing: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+  z-index: 2;
 }
 
 .card-glow {
@@ -1032,27 +1067,25 @@ const currentYear = computed(() => new Date().getFullYear())
   width: 100%;
   height: 100%;
   pointer-events: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, transparent 60%);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.46) 0%, transparent 54%);
   z-index: 1;
 }
 
-/* 一体化底部控制信息栏 (高度和外边距已大幅缩减，专注于操作台的辅助定位) */
+/* 一体化底部控制信息栏，尽量少占大屏名字空间。 */
 .app-bottom-bar {
-  height: 48px; /* 从 64px 缩减到 48px */
+  height: 42px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
   flex-shrink: 0;
-  backdrop-filter: blur(25px);
-  background: rgba(255, 255, 255, 0.65);
-  border: 1px solid rgba(255, 255, 255, 0.7);
-  border-top: 1px solid rgba(255, 255, 255, 0.8);
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.9);
-  border-radius: 14px;
+  background: rgba(248, 251, 255, 0.92);
+  border: 1px solid rgba(97, 128, 168, 0.18);
+  box-shadow: 0 10px 28px rgba(32, 65, 105, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-radius: 8px;
   z-index: 10;
   box-sizing: border-box;
-  margin-top: 8px; /* 从 16px 缩减到 8px，完全释放名字空间 */
+  margin-top: 8px;
   transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -1066,16 +1099,15 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .icon-pill-btn {
-  border-radius: 9999px !important;
+  border-radius: 7px !important;
   font-weight: 600 !important;
-  height: 32px !important; /* 从 40px 缩减到 32px */
-  padding: 0 14px !important;
+  height: 30px !important;
+  padding: 0 12px !important;
   font-size: 13px !important;
-  border: 1px solid rgba(0, 0, 0, 0.05) !important;
-  background: rgba(255, 255, 255, 0.7) !important;
-  backdrop-filter: blur(20px) !important;
-  color: #1d1d1f !important;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02) !important;
+  border: 1px solid rgba(97, 128, 168, 0.18) !important;
+  background: rgba(255, 255, 255, 0.86) !important;
+  color: #151a23 !important;
+  box-shadow: none !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   display: inline-flex;
   align-items: center;
@@ -1083,23 +1115,23 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .icon-pill-btn:hover {
-  background: rgba(255, 255, 255, 0.95) !important;
+  background: rgba(255, 255, 255, 0.98) !important;
   transform: translateY(-1px);
 }
 
 .icon-pill-btn.start-btn {
-  background: linear-gradient(185deg, #007aff, #005ecb) !important;
+  background: linear-gradient(180deg, #2184ff, #1167de) !important;
   color: white !important;
   border: none !important;
-  box-shadow: 0 3px 8px rgba(0, 122, 255, 0.15) !important;
+  box-shadow: 0 6px 16px rgba(20, 118, 240, 0.18) !important;
 }
 
 .icon-pill-btn.start-btn:hover {
-  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25) !important;
+  box-shadow: 0 8px 20px rgba(20, 118, 240, 0.24) !important;
 }
 
 .icon-pill-btn.stop-btn {
-  background: linear-gradient(185deg, #ff3b30, #d01d12) !important;
+  background: linear-gradient(180deg, #ff4d43, #d62d23) !important;
   color: white !important;
   border: none !important;
   box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15) !important;
@@ -1113,7 +1145,7 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .icon-pill-btn.danger {
-  color: #ff3b30 !important;
+  color: #d62d23 !important;
 }
 
 .icon-pill-btn.danger:hover {
@@ -1158,17 +1190,17 @@ const currentYear = computed(() => new Date().getFullYear())
   display: flex;
   align-items: center;
   gap: 10px; /* 间距缩减 */
-  font-size: 13px; /* 字号缩小到 13px，非常低调 */
+  font-size: 13px;
   font-weight: 700;
-  color: #86868b;
+  color: #667489;
 }
 
 .stat-capsule {
-  color: #86868b;
+  color: #667489;
 }
 
 .stat-highlight {
-  color: #515154; /* 调低亮度，防喧宾夺主 */
+  color: #253040;
   font-weight: 800;
 }
 
@@ -1191,10 +1223,10 @@ const currentYear = computed(() => new Date().getFullYear())
 }
 
 .bottom-copyright {
-  font-size: 12px; /* 版权标志缩至 12px，极简设计 */
+  font-size: 12px;
   font-weight: 600;
-  color: rgba(0, 0, 0, 0.3);
-  letter-spacing: 0.01em;
+  color: rgba(37, 48, 64, 0.42);
+  letter-spacing: 0;
   white-space: nowrap;
 }
 
