@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import ThreeLotteryStage from './ThreeLotteryStage.vue'
 import { 
   Upload, 
   Setting, 
@@ -48,18 +49,28 @@ const isDrawing = ref(false)
 const isRevealing = ref(false)
 // 已经揭晓的卡片数量
 const revealedCount = ref(0)
+const droppingResultNames = ref([])
+const isDroppingPreviousResult = ref(false)
 // 控制面板抽屉显示状态
 const drawerVisible = ref(false)
 // 控制台默认落在准备页，让首次使用路径更短。
 const activeSettingsTab = ref('prepare')
+// 舞台视图模式，普通模式保证极端现场环境下仍有稳定兜底。
+const stageMode = ref('grid')
 
 // 计时器引用
 let drawingTimer = null
 let revealTimer = null
+let droppingResultTimer = null
 let audioContext = null
 let customAudioObjectUrl = ''
 // 文件输入引用
 const fileInputRef = ref(null)
+const pendingQuickSetupAfterImport = ref(false)
+const quickSetupVisible = ref(false)
+const quickSetupBatchSize = ref(50)
+const quickSetupTotalBatches = ref(4)
+let quickSetupTimer = null
 // 结束音效文件输入引用
 const audioFileInputRef = ref(null)
 // 历史记录
@@ -96,6 +107,11 @@ const getFullGridNameScale = (count, length) => {
 
 const completedBatchCount = computed(() => Math.max(0, currentBatch.value - 1))
 const remainingCount = computed(() => Math.max(0, nameList.value.length - allPickedNames.value.length))
+const remainingNamesForStage = computed(() => nameList.value.filter(name => !allPickedNames.value.includes(name)))
+const isThreeStage = computed(() => stageMode.value === 'three')
+const showThreeStaticResult = computed(() => isThreeStage.value && pickedNames.value.length > 0 && !isDrawing.value && !isDroppingPreviousResult.value)
+const showDroppingResult = computed(() => isThreeStage.value && isDroppingPreviousResult.value && droppingResultNames.value.length > 0)
+const threeResultNames = computed(() => showDroppingResult.value ? droppingResultNames.value : pickedNames.value)
 const canStartDraw = computed(() => {
   return nameList.value.length > 0
     && batchSize.value > 0
@@ -103,6 +119,10 @@ const canStartDraw = computed(() => {
     && remainingCount.value > 0
     && !isDrawing.value
 })
+
+const setStageMode = (mode) => {
+  stageMode.value = mode
+}
 
 const readinessStatus = computed(() => {
   if (nameList.value.length === 0) return '先导入名单'
@@ -147,9 +167,7 @@ const openDrawer = async (tab = 'prepare') => {
   await syncLocalizedAriaLabels()
 }
 
-// 动态计算网格的样式
-const gridStyle = computed(() => {
-  const count = pickedNames.value.length
+const getGridStyleByCount = (count) => {
   if (count === 0) return {}
   
   let cols = 1
@@ -199,11 +217,13 @@ const gridStyle = computed(() => {
     width: '100%',
     height: '100%',
   }
-})
+}
 
-// 根据卡片总数计算基础字体大小与边距，优先保证 1 到 50 人在大屏上可读。
-const nameCardStyle = computed(() => {
-  const count = pickedNames.value.length
+// 动态计算网格的样式
+const gridStyle = computed(() => getGridStyleByCount(pickedNames.value.length))
+const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames.value.length))
+
+const getNameCardStyleByCount = (count) => {
   let fontSize = 'clamp(1.35rem, 2vw, 2.6rem)'
   let padding = '1rem'
   
@@ -247,14 +267,17 @@ const nameCardStyle = computed(() => {
     fontSize,
     padding
   }
-})
+}
+
+// 根据卡片总数计算基础字体大小与边距，优先保证 1 到 50 人在大屏上可读。
+const nameCardStyle = computed(() => getNameCardStyleByCount(pickedNames.value.length))
 
 // 针对不同字数名字做排版微调，保持视觉平衡
-const getNameStyle = (name) => {
+const getNameStyle = (name, count = pickedNames.value.length) => {
   if (!name) return {}
   const length = name.length
-  const styles = { ...nameCardStyle.value }
-  const fullGridScale = getFullGridNameScale(pickedNames.value.length, length)
+  const styles = { ...getNameCardStyleByCount(count) }
+  const fullGridScale = getFullGridNameScale(count, length)
 
   if (fullGridScale) {
     styles.fontSize = `calc(${styles.fontSize} * ${fullGridScale})`
@@ -535,8 +558,52 @@ const previewResultSound = async () => {
 }
 
 // 触发文件选择
-const triggerFileSelect = () => {
-  fileInputRef.value.click()
+const triggerFileSelect = (mode = 'drawer') => {
+  pendingQuickSetupAfterImport.value = mode === 'three'
+  fileInputRef.value?.click()
+}
+
+const openQuickSetupDialog = () => {
+  quickSetupBatchSize.value = batchSize.value > 0 ? batchSize.value : Math.min(50, Math.max(1, nameList.value.length))
+  quickSetupTotalBatches.value = totalBatches.value > 0 ? totalBatches.value : 4
+  quickSetupVisible.value = true
+  syncLocalizedAriaLabels()
+}
+
+const scheduleQuickSetupDialog = () => {
+  if (!pendingQuickSetupAfterImport.value || !isThreeStage.value) return
+
+  pendingQuickSetupAfterImport.value = false
+  if (quickSetupTimer) window.clearTimeout(quickSetupTimer)
+  quickSetupTimer = window.setTimeout(() => {
+    openQuickSetupDialog()
+    quickSetupTimer = null
+  }, 2500)
+}
+
+const confirmQuickSetup = () => {
+  const nextBatchSize = Number(quickSetupBatchSize.value)
+  const nextTotalBatches = Number(quickSetupTotalBatches.value)
+
+  if (!Number.isFinite(nextBatchSize) || nextBatchSize <= 0) {
+    ElMessage.warning('每轮抽取人数必须大于 0')
+    return
+  }
+
+  if (nextBatchSize > remainingCount.value) {
+    ElMessage.warning(`剩余可抽人数为 ${remainingCount.value} 人，请调小每轮抽取人数`)
+    return
+  }
+
+  if (!Number.isFinite(nextTotalBatches) || nextTotalBatches <= 0) {
+    ElMessage.warning('抽取轮数必须大于 0')
+    return
+  }
+
+  batchSize.value = nextBatchSize
+  totalBatches.value = nextTotalBatches
+  quickSetupVisible.value = false
+  ElMessage.success('抽奖设置已就绪')
 }
 
 // 处理文本名单导入
@@ -556,6 +623,7 @@ const handleFileImport = (event) => {
       nameInput.value = e.target.result
       adjustPickCount()
       ElMessage.success(`成功导入名单，共 ${nameList.value.length} 人`)
+      scheduleQuickSetupDialog()
     } catch (error) {
       ElMessage.error('导入失败，请检查文件格式')
     }
@@ -599,6 +667,17 @@ const startDraw = () => {
   }
 
   prepareResultSound()
+
+  if (isThreeStage.value && pickedNames.value.length > 0 && !isDrawing.value) {
+    droppingResultNames.value = [...pickedNames.value]
+    isDroppingPreviousResult.value = true
+    if (droppingResultTimer) window.clearTimeout(droppingResultTimer)
+    droppingResultTimer = window.setTimeout(() => {
+      isDroppingPreviousResult.value = false
+      droppingResultNames.value = []
+      droppingResultTimer = null
+    }, 760)
+  }
   
   isDrawing.value = true
   isRevealing.value = false
@@ -728,8 +807,11 @@ const clearResult = () => {
   revealedCount.value = 0
   isDrawing.value = false
   isRevealing.value = false
+  isDroppingPreviousResult.value = false
+  droppingResultNames.value = []
   if (drawingTimer) clearInterval(drawingTimer)
   if (revealTimer) clearInterval(revealTimer)
+  if (droppingResultTimer) window.clearTimeout(droppingResultTimer)
   ElMessage.success('数据重置成功')
 }
 
@@ -805,6 +887,7 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (drawingTimer) clearInterval(drawingTimer)
   if (revealTimer) clearInterval(revealTimer)
+  if (droppingResultTimer) window.clearTimeout(droppingResultTimer)
   clearCustomResultSound(false)
   if (audioContext && audioContext.state !== 'closed') {
     audioContext.close().catch((error) => {
@@ -819,6 +902,15 @@ const appVersion = __APP_VERSION__
 
 <template>
   <div class="app-viewport">
+    <input
+      type="file"
+      ref="fileInputRef"
+      @change="handleFileImport"
+      accept=".txt"
+      aria-label="选择 TXT 名单文件"
+      class="hidden-file-input"
+    />
+
     <!-- 动态科技质感背景 -->
     <div class="dynamic-background">
       <div class="ambient-glow glow-1"></div>
@@ -830,96 +922,127 @@ const appVersion = __APP_VERSION__
     <div class="main-layout">
       <!-- 名单展示核心区 (自适应填充剩余空间) -->
       <main class="grid-content-area">
-        <!-- 空白状态下：直接呈现准备路径，避免首次使用者猜入口。 -->
-        <div v-if="pickedNames.length === 0" class="empty-placeholder-container">
-          <section class="center-dashboard-card" aria-labelledby="standby-title">
-            <div class="standby-main">
-              <div class="standby-kicker">现场准备</div>
-              <h1 id="standby-title" class="dashboard-title">
-                {{ nameList.length > 0 ? '名单已就绪' : '抽签待开始' }}
-              </h1>
-              <p class="dashboard-subtitle">
-                {{ nameList.length > 0 ? `${nameList.length} 人进入奖池，确认单批人数后即可开始。` : '先导入名单，再确认每轮抽取人数。' }}
-              </p>
-
-              <div class="standby-actions" aria-label="抽签准备操作">
-                <el-button
-                  type="primary"
-                  class="standby-primary-btn"
-                  @click="nameList.length === 0 ? openDrawer('prepare') : startDraw()"
-                  :disabled="nameList.length > 0 && !canStartDraw"
-                >
-                  <el-icon>
-                    <Upload v-if="nameList.length === 0" />
-                    <VideoPlay v-else />
-                  </el-icon>
-                  <span>{{ nameList.length === 0 ? '导入名单' : '开始抽签' }}</span>
-                </el-button>
-                <el-button class="standby-secondary-btn" @click="openDrawer('prepare')">
-                  <el-icon><Setting /></el-icon>
-                  <span>准备设置</span>
-                </el-button>
-              </div>
-            </div>
-
-            <div class="setup-progress" aria-label="准备进度">
+        <div v-if="isThreeStage" class="grid-animation-wrapper is-three-stage">
+          <ThreeLotteryStage
+            v-if="!showThreeStaticResult"
+            :names="pickedNames"
+            :pool-names="remainingNamesForStage"
+            :is-drawing="isDrawing"
+            :is-revealing="isRevealing"
+            :revealed-count="revealedCount"
+            @import-list="triggerFileSelect('three')"
+          />
+          <div
+            v-if="showThreeStaticResult || showDroppingResult"
+            class="three-original-result-layer"
+            :class="{ 'is-dropping': showDroppingResult }"
+          >
+            <div :style="threeResultGridStyle" class="interactive-grid">
               <div
-                v-for="(step, index) in setupSteps"
-                :key="step.label"
-                class="setup-step"
-                :class="{ 'is-done': step.done, 'is-current': !step.done && setupSteps.slice(0, index).every(item => item.done) }"
+                v-for="(name, index) in threeResultNames"
+                :key="`three-result-${name}-${index}`"
+                class="name-card-wrapper"
               >
-                <span class="setup-step-index">{{ index + 1 }}</span>
-                <span class="setup-step-copy">
-                  <span class="setup-step-label">{{ step.label }}</span>
-                  <span class="setup-step-detail">{{ step.detail }}</span>
-                </span>
-              </div>
-            </div>
-
-            <dl class="standby-metrics" aria-label="抽签状态概览">
-              <div>
-                <dt>名单</dt>
-                <dd>{{ nameList.length }} 人</dd>
-              </div>
-              <div>
-                <dt>单批</dt>
-                <dd>{{ batchSize }} 人</dd>
-              </div>
-              <div>
-                <dt>剩余</dt>
-                <dd>{{ remainingCount }} 人</dd>
-              </div>
-              <div>
-                <dt>进度</dt>
-                <dd>{{ completedBatchCount }} / {{ totalBatches }} 轮</dd>
-              </div>
-            </dl>
-          </section>
-        </div>
-        
-        <!-- 抽签结果网格展示 -->
-        <div v-else class="grid-animation-wrapper">
-          <div :style="gridStyle" class="interactive-grid">
-            <div 
-              v-for="(name, index) in pickedNames" 
-              :key="index" 
-              class="name-card-wrapper"
-            >
-              <div 
-                class="name-card" 
-                :class="{ 
-                  'is-rolling': isDrawing && (!isRevealing || index >= revealedCount),
-                  'is-revealed': !isDrawing || (isRevealing && index < revealedCount)
-                }"
-              >
-                <!-- 名字再次加大，并使用特粗字体确保户外大屏易读性 -->
-                <span class="name-text" :style="getNameStyle(name)">{{ name }}</span>
-                <div class="card-glow"></div>
+                <div class="name-card is-revealed">
+                  <span class="name-text" :style="getNameStyle(name, threeResultNames.length)">{{ name }}</span>
+                  <div class="card-glow"></div>
+                </div>
               </div>
             </div>
           </div>
         </div>
+        <template v-else>
+          <!-- 空白状态下：直接呈现准备路径，避免首次使用者猜入口。 -->
+          <div v-if="pickedNames.length === 0" class="empty-placeholder-container">
+            <section class="center-dashboard-card" aria-labelledby="standby-title">
+              <div class="standby-main">
+                <div class="standby-kicker">现场准备</div>
+                <h1 id="standby-title" class="dashboard-title">
+                  {{ nameList.length > 0 ? '名单已就绪' : '抽签待开始' }}
+                </h1>
+                <p class="dashboard-subtitle">
+                  {{ nameList.length > 0 ? `${nameList.length} 人进入奖池，确认单批人数后即可开始。` : '先导入名单，再确认每轮抽取人数。' }}
+                </p>
+
+                <div class="standby-actions" aria-label="抽签准备操作">
+                  <el-button
+                    type="primary"
+                    class="standby-primary-btn"
+                    @click="nameList.length === 0 ? openDrawer('prepare') : startDraw()"
+                    :disabled="nameList.length > 0 && !canStartDraw"
+                  >
+                    <el-icon>
+                      <Upload v-if="nameList.length === 0" />
+                      <VideoPlay v-else />
+                    </el-icon>
+                    <span>{{ nameList.length === 0 ? '导入名单' : '开始抽签' }}</span>
+                  </el-button>
+                  <el-button class="standby-secondary-btn" @click="openDrawer('prepare')">
+                    <el-icon><Setting /></el-icon>
+                    <span>准备设置</span>
+                  </el-button>
+                </div>
+              </div>
+
+              <div class="setup-progress" aria-label="准备进度">
+                <div
+                  v-for="(step, index) in setupSteps"
+                  :key="step.label"
+                  class="setup-step"
+                  :class="{ 'is-done': step.done, 'is-current': !step.done && setupSteps.slice(0, index).every(item => item.done) }"
+                >
+                  <span class="setup-step-index">{{ index + 1 }}</span>
+                  <span class="setup-step-copy">
+                    <span class="setup-step-label">{{ step.label }}</span>
+                    <span class="setup-step-detail">{{ step.detail }}</span>
+                  </span>
+                </div>
+              </div>
+
+              <dl class="standby-metrics" aria-label="抽签状态概览">
+                <div>
+                  <dt>名单</dt>
+                  <dd>{{ nameList.length }} 人</dd>
+                </div>
+                <div>
+                  <dt>单批</dt>
+                  <dd>{{ batchSize }} 人</dd>
+                </div>
+                <div>
+                  <dt>剩余</dt>
+                  <dd>{{ remainingCount }} 人</dd>
+                </div>
+                <div>
+                  <dt>进度</dt>
+                  <dd>{{ completedBatchCount }} / {{ totalBatches }} 轮</dd>
+                </div>
+              </dl>
+            </section>
+          </div>
+
+          <!-- 抽签结果网格展示 -->
+          <div v-else class="grid-animation-wrapper">
+            <div :style="gridStyle" class="interactive-grid">
+              <div
+                v-for="(name, index) in pickedNames"
+                :key="index"
+                class="name-card-wrapper"
+              >
+                <div
+                  class="name-card"
+                  :class="{
+                    'is-rolling': isDrawing && (!isRevealing || index >= revealedCount),
+                    'is-revealed': !isDrawing || (isRevealing && index < revealedCount)
+                  }"
+                >
+                  <!-- 名字再次加大，并使用特粗字体确保户外大屏易读性 -->
+                  <span class="name-text" :style="getNameStyle(name)">{{ name }}</span>
+                  <div class="card-glow"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </template>
       </main>
 
       <!-- 底部控制与信息面板 (已精简收窄，高度及外边距大幅压缩，把空间彻底留给名字) -->
@@ -927,6 +1050,25 @@ const appVersion = __APP_VERSION__
         <!-- 左侧：微型控制按钮组 (高度已缩减为 32px) -->
         <div class="bottom-bar-left">
           <template v-if="!isDrawing">
+            <div class="stage-switcher" role="group" aria-label="舞台视图切换">
+              <button
+                type="button"
+                class="stage-switch-btn"
+                :class="{ 'is-active': stageMode === 'grid' }"
+                @click="setStageMode('grid')"
+              >
+                普通
+              </button>
+              <button
+                type="button"
+                class="stage-switch-btn"
+                :class="{ 'is-active': stageMode === 'three' }"
+                @click="setStageMode('three')"
+              >
+                3D
+              </button>
+            </div>
+
             <el-button 
               class="icon-pill-btn"
               @click="openDrawer('prepare')"
@@ -956,6 +1098,33 @@ const appVersion = __APP_VERSION__
           </template>
           
           <template v-else>
+            <div class="stage-switcher is-disabled" role="group" aria-label="舞台视图切换">
+              <button
+                type="button"
+                class="stage-switch-btn"
+                :class="{ 'is-active': stageMode === 'grid' }"
+                disabled
+              >
+                普通
+              </button>
+              <button
+                type="button"
+                class="stage-switch-btn"
+                :class="{ 'is-active': stageMode === 'three' }"
+                disabled
+              >
+                3D
+              </button>
+            </div>
+
+            <el-button
+              class="icon-pill-btn"
+              disabled
+            >
+              <el-icon><Setting /></el-icon>
+              <span>设置</span>
+            </el-button>
+
             <el-button 
               type="danger"
               class="icon-pill-btn stop-btn"
@@ -1062,14 +1231,6 @@ const appVersion = __APP_VERSION__
                     <el-button type="primary" size="small" @click="triggerFileSelect" :disabled="isDrawing">
                       <el-icon><Upload /></el-icon> 导入
                     </el-button>
-                    <input
-                      type="file"
-                      ref="fileInputRef"
-                      @change="handleFileImport"
-                      accept=".txt"
-                      aria-label="选择 TXT 名单文件"
-                      style="display: none"
-                    />
                     <el-button type="danger" size="small" @click="clearInput" :disabled="isDrawing" plain>
                       <el-icon><Delete /></el-icon> 清空
                     </el-button>
@@ -1186,6 +1347,51 @@ const appVersion = __APP_VERSION__
         </footer>
       </div>
     </el-drawer>
+
+    <el-dialog
+      v-model="quickSetupVisible"
+      title="抽奖设置"
+      width="min(420px, calc(100vw - 32px))"
+      class="quick-setup-dialog"
+      :close-on-click-modal="false"
+      :show-close="false"
+      align-center
+      @opened="syncLocalizedAriaLabels"
+    >
+      <div class="quick-setup-body">
+        <p class="quick-setup-copy">名单已进入 3D 舞台，确认每轮抽取人数和总轮数后即可开始。</p>
+        <div class="quick-setup-grid">
+          <label class="quick-setup-field" for="quick-batch-size-input">
+            <span>每轮抽取</span>
+            <el-input-number
+              id="quick-batch-size-input"
+              v-model="quickSetupBatchSize"
+              :min="1"
+              :max="Math.max(1, remainingCount)"
+              aria-label="每轮抽取人数"
+              class="w-full"
+            />
+          </label>
+          <label class="quick-setup-field" for="quick-total-batches-input">
+            <span>抽取轮数</span>
+            <el-input-number
+              id="quick-total-batches-input"
+              v-model="quickSetupTotalBatches"
+              :min="1"
+              :max="100"
+              aria-label="抽取轮数"
+              class="w-full"
+            />
+          </label>
+        </div>
+      </div>
+      <template #footer>
+        <div class="quick-setup-actions">
+          <el-button @click="quickSetupVisible = false">稍后设置</el-button>
+          <el-button type="primary" @click="confirmQuickSetup">确认</el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -1550,9 +1756,41 @@ const appVersion = __APP_VERSION__
   padding: 4px 0;
 }
 
+.grid-animation-wrapper.is-three-stage {
+  padding: 0;
+  position: relative;
+}
+
 .interactive-grid {
   width: 100%;
   height: 100%;
+}
+
+.three-original-result-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  box-sizing: border-box;
+  padding: 4px 0;
+  background: transparent;
+}
+
+.three-original-result-layer.is-dropping {
+  pointer-events: none;
+  animation: resultGridDropOut 0.74s cubic-bezier(0.72, 0, 0.8, 0.32) forwards;
+}
+
+@keyframes resultGridDropOut {
+  0% {
+    transform: translateY(0);
+    opacity: 1;
+    filter: blur(0);
+  }
+  100% {
+    transform: translateY(105%);
+    opacity: 0;
+    filter: blur(1.5px);
+  }
 }
 
 .name-card-wrapper {
@@ -1691,6 +1929,48 @@ const appVersion = __APP_VERSION__
   align-items: center;
   flex: 1;
   min-width: 0;
+}
+
+.stage-switcher {
+  height: 30px;
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(48px, 1fr));
+  align-items: center;
+  padding: 2px;
+  border-radius: 7px;
+  border: 1px solid var(--color-line);
+  background: oklch(95% 0.016 248 / 0.8);
+  flex-shrink: 0;
+}
+
+.stage-switcher.is-disabled {
+  opacity: 0.48;
+  pointer-events: none;
+}
+
+.stage-switch-btn {
+  height: 24px;
+  min-width: 48px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-muted);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 850;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, box-shadow 0.18s ease;
+}
+
+.stage-switch-btn:hover {
+  color: var(--color-primary-deep);
+}
+
+.stage-switch-btn.is-active {
+  background: var(--color-surface-strong);
+  color: var(--color-primary-deep);
+  box-shadow: 0 4px 12px oklch(38% 0.04 248 / 0.1);
 }
 
 .icon-pill-btn {
@@ -2234,6 +2514,70 @@ const appVersion = __APP_VERSION__
   color: var(--color-muted);
   border-top: 1px solid var(--color-line);
   padding-top: 16px;
+}
+
+.hidden-file-input {
+  display: none;
+}
+
+.quick-setup-dialog :deep(.el-dialog) {
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--color-surface-strong);
+}
+
+.quick-setup-dialog :deep(.el-dialog__header) {
+  padding: 22px 22px 10px;
+  margin: 0;
+}
+
+.quick-setup-dialog :deep(.el-dialog__title) {
+  color: var(--color-ink);
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.quick-setup-dialog :deep(.el-dialog__body) {
+  padding: 10px 22px 18px;
+}
+
+.quick-setup-dialog :deep(.el-dialog__footer) {
+  padding: 0 22px 22px;
+}
+
+.quick-setup-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.quick-setup-copy {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 700;
+}
+
+.quick-setup-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.quick-setup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--color-ink-soft);
+}
+
+.quick-setup-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 /* 针对 Element Plus 组件的部分覆盖适配 */
