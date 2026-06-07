@@ -1,7 +1,16 @@
 <script setup>
-import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
-import { Upload } from '@element-plus/icons-vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ElMessage, ElMessageBox } from 'element-plus'
+import { 
+  Upload, 
+  Setting, 
+  VideoPlay, 
+  VideoPause, 
+  Refresh, 
+  Aim, 
+  Download, 
+  Delete 
+} from '@element-plus/icons-vue'
 import confetti from 'canvas-confetti'
 
 // 存储输入的名单
@@ -31,112 +40,142 @@ const currentBatch = ref(1)
 const totalBatches = ref(4)
 // 是否正在抽取中
 const isDrawing = ref(false)
-// 抽取动画的计时器
+// 是否处于揭晓动画阶段
+const isRevealing = ref(false)
+// 已经揭晓的卡片数量
+const revealedCount = ref(0)
+// 控制面板抽屉显示状态
+const drawerVisible = ref(false)
+
+// 计时器引用
 let drawingTimer = null
+let revealTimer = null
 // 文件输入引用
 const fileInputRef = ref(null)
 // 历史记录
 const historyRecords = ref([])
+// 最终录入的幸运儿名单
+const finalPickedNames = ref([])
 
-// 使用 Tailwind CSS 类来动态计算网格布局
-const resultGridClass = computed(() => {
-  const count = pickedNames.value.length;
-  // 网格容器上的 h-full 类与滚动需求的冲突。h-full 强制网格高度等于父容器高度，导致滚动条无法显示。
-  const baseClass = `grid ${count >= 50 ? '' : 'h-full'} w-full items-center justify-center gap-4 p-4`;
+// 动态计算网格的样式
+const gridStyle = computed(() => {
+  const count = pickedNames.value.length
+  if (count === 0) return {}
   
-  // 0人处理
-  if (count === 0) return '';
+  let cols = 1
+  let rows = 1
   
-  // 1-2人特殊处理
-  if (count === 1) return `${baseClass} grid-cols-1 grid-rows-1`;
-  if (count === 2) return `${baseClass} grid-cols-2 grid-rows-1`;
-  
-  // 3-49人：动态计算最优网格
-  if (count <= 49) {
-    // 寻找最接近平方根的行数作为起点
-    const startRows = Math.min(7, Math.max(2, Math.round(Math.sqrt(count))));
-    let bestLayout = null;
-    
-    // 遍历可能的行数配置 (2-7行)
-    for (let rows = startRows; rows >= 2; rows--) {
-      // 计算需要的列数
-      const cols = Math.ceil(count / rows);
-      
-      // 列数不能超过7（保持格子足够大）
-      if (cols > 7) continue;
-      
-      // 计算空闲格子数
-      const emptySlots = rows * cols - count;
-      
-      // 首次找到的布局或找到更优布局时更新
-      if (!bestLayout || emptySlots < bestLayout.emptySlots) {
-        bestLayout = { rows, cols, emptySlots };
-      }
-    }
-    
-    // 使用找到的最佳布局
-    if (bestLayout) {
-      const rowsClass = bestLayout.rows <= 6 
-        ? `grid-rows-${bestLayout.rows}` 
-        : 'grid-rows-7';
-      
-      return `${baseClass} grid-cols-${bestLayout.cols} ${rowsClass}`;
-    }
+  if (count === 1) {
+    cols = 1; rows = 1;
+  } else if (count === 2) {
+    cols = 2; rows = 1;
+  } else if (count <= 4) {
+    cols = 2; rows = 2;
+  } else if (count <= 6) {
+    cols = 3; rows = 2;
+  } else if (count <= 9) {
+    cols = 3; rows = 3;
+  } else if (count <= 12) {
+    cols = 4; rows = 3;
+  } else if (count <= 16) {
+    cols = 4; rows = 4;
+  } else if (count <= 20) {
+    cols = 5; rows = 4;
+  } else if (count <= 25) {
+    cols = 5; rows = 5;
+  } else if (count <= 30) {
+    cols = 6; rows = 5;
+  } else if (count <= 36) {
+    cols = 6; rows = 6;
+  } else if (count <= 42) {
+    cols = 7; rows = 6;
+  } else if (count <= 49) {
+    cols = 7; rows = 7;
+  } else if (count === 50) {
+    cols = 10; rows = 5;
+  } else {
+    // 50人以上，自动均衡排列
+    cols = Math.ceil(Math.sqrt(count * 1.6))
+    rows = Math.ceil(count / cols)
   }
   
-  // 50人特殊布局
-  if (count === 50) return `${baseClass} grid-cols-10 grid-rows-5`;
-  
-  // 51人以上：固定8×7布局（最多容纳56人）
-  return `${baseClass} grid-cols-8 grid-rows-7`;
-});
-
-// 使用 Tailwind CSS 类来动态计算卡片样式
-const nameCardClass = computed(() => {
-  const count = pickedNames.value.length
-  const baseClass = 'flex items-center justify-center text-center font-bold rounded-lg shadow-md transition-all duration-300 w-full h-full bg-blue-100 text-blue-600 border border-blue-200 hover:scale-105 hover:shadow-lg'
-  
-  if (count === 0) return ''
-  if (count === 1) return `${baseClass} text-[22rem]`   
-  if (count <= 4) return `${baseClass} text-[11rem]` 
-  if (count <= 9) return `${baseClass} text-[7.7rem]`  
-  if (count <= 16) return `${baseClass} text-[5.7rem]`  
-  if (count <= 25) return `${baseClass} text-[4.7rem]`  
-  if (count <= 36) return `${baseClass} text-[3.7rem]`  
-  if (count <= 49) return `${baseClass} text-[3.1rem]` 
-  return `${baseClass} text-[2.8rem]`
+  return {
+    display: 'grid',
+    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
+    gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))`,
+    gap: count <= 12 ? '24px' : count <= 30 ? '16px' : '10px',
+    width: '100%',
+    height: '100%',
+  }
 })
 
-// 根据名字长度动态调整字体大小
+// 根据卡片总数计算基础字体大小与边距 (针对户外大屏特意做特大字体适配)
+const nameCardStyle = computed(() => {
+  const count = pickedNames.value.length
+  let fontSize = '2rem'
+  let padding = '1rem'
+  
+  if (count === 1) {
+    fontSize = '14vw'
+    padding = '2rem'
+  } else if (count === 2) {
+    fontSize = '9.5vw'
+    padding = '1.8rem'
+  } else if (count <= 4) {
+    fontSize = '7.5vw'
+    padding = '1.5rem'
+  } else if (count <= 9) {
+    fontSize = '5.8vw'
+    padding = '1.2rem'
+  } else if (count <= 16) {
+    fontSize = '4.3vw'
+    padding = '1rem'
+  } else if (count <= 25) {
+    fontSize = '3.3vw'
+    padding = '0.8rem'
+  } else if (count <= 36) {
+    fontSize = '2.7vw'
+    padding = '0.6rem'
+  } else if (count <= 49) {
+    fontSize = '2.3vw'
+    padding = '0.5rem'
+  } else {
+    // 50人及以上
+    fontSize = '1.95vw'
+    padding = '0.4rem'
+  }
+  
+  return {
+    fontSize,
+    padding
+  }
+})
+
+// 针对不同字数名字做排版微调，保持视觉平衡
 const getNameStyle = (name) => {
   if (!name) return {}
   const length = name.length
+  const styles = { ...nameCardStyle.value }
   
-  // 针对4字名处理
-  if (length === 4) {
-    return { 
-      fontSize: '0.8em', 
-      letterSpacing: '-0.05em',
-      transform: 'scale(0.95)',
-      display: 'inline-block'
-    }
+  if (length >= 4) {
+    styles.fontSize = `calc(${styles.fontSize} * 0.72)`
+    styles.letterSpacing = '-0.03em'
+  } else if (length === 3) {
+    styles.letterSpacing = '0.08em'
+  } else if (length === 2) {
+    styles.letterSpacing = '0.4em'
+    styles.textIndent = '0.4em' // 居中修正
   }
   
-  // 针对2字名处理
-  if (length === 2) {
-    return { 
-      letterSpacing: '0.2em',
-      transform: 'scale(1.05)',
-      display: 'inline-block'
-    }
-  }
-  
-  return {}
+  return styles
 }
 
-// 监听名单变化，调整抽取人数
+// 自动调整抽取人数上限
 const adjustPickCount = () => {
-  if (nameList.value.length > 0 && batchSize.value > nameList.value.length) {
+  const remaining = nameList.value.length - allPickedNames.value.length
+  if (remaining > 0 && batchSize.value > remaining) {
+    batchSize.value = remaining
+  } else if (nameList.value.length > 0 && batchSize.value > nameList.value.length) {
     batchSize.value = nameList.value.length
   }
 }
@@ -146,34 +185,32 @@ const triggerFileSelect = () => {
   fileInputRef.value.click()
 }
 
-// 处理文件导入
+// 处理文本名单导入
 const handleFileImport = (event) => {
   const file = event.target.files[0]
   if (!file) return
   
-  // 检查文件类型，只接受文本文件
   if (!file.type.match('text.*') && !file.name.endsWith('.txt')) {
-    ElMessage.error('请选择文本文件')
-    event.target.value = '' // 清空文件输入
+    ElMessage.error('请选择文本文件 (.txt)')
+    event.target.value = ''
     return
   }
   
   const reader = new FileReader()
   reader.onload = (e) => {
     try {
-      const content = e.target.result
-      nameInput.value = content
+      nameInput.value = e.target.result
       adjustPickCount()
       ElMessage.success(`成功导入名单，共 ${nameList.value.length} 人`)
     } catch (error) {
       ElMessage.error('导入失败，请检查文件格式')
     }
-    event.target.value = '' // 清空文件输入，允许再次选择同一文件
+    event.target.value = ''
   }
   
   reader.onerror = () => {
     ElMessage.error('读取文件失败')
-    event.target.value = '' // 清空文件输入
+    event.target.value = ''
   }
   
   reader.readAsText(file)
@@ -182,60 +219,56 @@ const handleFileImport = (event) => {
 // 开始抽签
 const startDraw = () => {
   if (nameList.value.length === 0) {
-    ElMessage.warning('请先输入名单')
+    ElMessage.warning('请先导入或输入名单')
     return
   }
   
-  // 检查剩余可抽取人数
   const remainingNames = nameList.value.filter(name => !allPickedNames.value.includes(name))
   if (remainingNames.length === 0) {
-    ElMessage.warning('所有人都已被抽取，请清空结果后重试')
+    ElMessage.warning('所有人员已被抽取完毕')
     return
   }
   
   if (batchSize.value <= 0) {
-    ElMessage.warning('抽取人数必须大于0')
+    ElMessage.warning('抽取人数必须大于 0')
     return
   }
   
   if (batchSize.value > remainingNames.length) {
-    ElMessage.warning(`剩余可抽取人数为${remainingNames.length}人，请减少单批次抽取人数`)
+    ElMessage.warning(`剩余可抽人数为 ${remainingNames.length} 人，请在设置中调整单批人数`)
     return
   }
   
   isDrawing.value = true
-  const interval = 50 // 每50毫秒更新一次
+  isRevealing.value = false
+  revealedCount.value = 0
   
-  // 清除之前的计时器
-  if (drawingTimer) {
-    clearInterval(drawingTimer)
-  }
+  if (drawingTimer) clearInterval(drawingTimer)
+  if (revealTimer) clearInterval(revealTimer)
   
-  // 动画效果：快速切换显示的名字，直到用户手动停止
+  // 滚动抽取动画：每 50ms 重新洗牌展示不重复的临时名单
   drawingTimer = setInterval(() => {
-    // 随机抽取临时展示用的名字（从未抽取过的名字中选择）
     const tempNames = []
     const tempCount = Math.min(batchSize.value, remainingNames.length)
+    const pool = [...remainingNames]
     
     for (let i = 0; i < tempCount; i++) {
-      const randomIndex = Math.floor(Math.random() * remainingNames.length)
-      tempNames.push(remainingNames[randomIndex])
+      if (pool.length === 0) break
+      const randomIndex = Math.floor(Math.random() * pool.length)
+      tempNames.push(pool.splice(randomIndex, 1)[0])
     }
-    
     pickedNames.value = tempNames
-  }, interval)
+  }, 50)
 }
 
-// 停止抽取
+// 停止抽取 (逐个揭晓动画)
 const stopDraw = () => {
-  if (!isDrawing.value) return
+  if (!isDrawing.value || isRevealing.value) return
   
-  // 清除计时器
-  if (drawingTimer) {
-    clearInterval(drawingTimer)
-  }
+  isRevealing.value = true
+  if (drawingTimer) clearInterval(drawingTimer)
   
-  // 确定最终结果（不重复）
+  // 计算真实中奖名单
   const remainingNames = nameList.value.filter(name => !allPickedNames.value.includes(name))
   const namesCopy = [...remainingNames]
   
@@ -245,98 +278,133 @@ const stopDraw = () => {
     [namesCopy[i], namesCopy[j]] = [namesCopy[j], namesCopy[i]]
   }
   
-  // 取前N个
   const finalNames = namesCopy.slice(0, Math.min(batchSize.value, namesCopy.length))
-  pickedNames.value = finalNames
+  finalPickedNames.value = finalNames
   
-  // 添加到已抽取名单中
-  allPickedNames.value = [...allPickedNames.value, ...finalNames]
+  revealedCount.value = 0
+  const totalItems = finalNames.length
   
-  // 记录当次历史
-  historyRecords.value.unshift({
-    batch: currentBatch.value,
-    names: finalNames,
-  })
-
-  // 更新批次
-  currentBatch.value += 1
+  // 每次揭晓步长，让总揭晓时间维持在 1.2s 左右
+  const step = Math.max(1, Math.ceil(totalItems / 15))
   
-  isDrawing.value = false
-  ElMessage.success(`第 ${currentBatch.value - 1} 批次抽取完成，已抽取 ${finalNames.length} 人`)
-
-  // 触发烟花效果
-  triggerConfetti()
+  revealTimer = setInterval(() => {
+    revealedCount.value += step
+    
+    if (revealedCount.value >= totalItems) {
+      // 揭晓完成
+      clearInterval(revealTimer)
+      pickedNames.value = [...finalNames]
+      
+      allPickedNames.value = [...allPickedNames.value, ...finalNames]
+      
+      historyRecords.value.unshift({
+        batch: currentBatch.value,
+        names: finalNames,
+      })
+      
+      currentBatch.value += 1
+      isDrawing.value = false
+      isRevealing.value = false
+      
+      ElMessage.success(`第 ${currentBatch.value - 1} 轮抽取完成，成功抽取 ${finalNames.length} 人`)
+      triggerConfetti()
+    } else {
+      // 混合渲染：前面显示最终名单，后面继续随机滚动
+      const currentList = []
+      const usedFinalNames = finalNames.slice(0, revealedCount.value)
+      const rollPool = remainingNames.filter(n => !usedFinalNames.includes(n))
+      
+      for (let i = 0; i < totalItems; i++) {
+        if (i < revealedCount.value) {
+          currentList.push(finalNames[i])
+        } else {
+          if (rollPool.length > 0) {
+            const randomIndex = Math.floor(Math.random() * rollPool.length)
+            currentList.push(rollPool.splice(randomIndex, 1)[0])
+          } else {
+            currentList.push('...')
+          }
+        }
+      }
+      pickedNames.value = currentList
+    }
+  }, 60)
 }
 
-// 触发烟花效果
+// 科技感烟花：金、银、科技蓝、香槟金配色
 const triggerConfetti = () => {
-  const count = 500
+  const count = 300
   const defaults = {
-    origin: { y: 0.7 }
+    origin: { y: 0.65 },
+    colors: ['#FFD700', '#FFA500', '#F4E0A5', '#C0C0C0', '#007AFF', '#5856D6']
   }
 
   const fire = (particleRatio, opts) => {
-  confetti({
-        ...defaults,
-        ...opts,
-        particleCount: Math.floor(count * particleRatio)
+    confetti({
+      ...defaults,
+      ...opts,
+      particleCount: Math.floor(count * particleRatio)
     })
-    }
+  }
 
-    fire(0.25, {
-    spread: 26,
-    startVelocity: 55,
-    })
-    fire(0.2, {
-    spread: 60,
-    })
-    fire(0.35, {
-    spread: 100,
-    decay: 0.91,
-    scalar: 0.8
-    })
-    fire(0.1, {
-    spread: 120,
-    startVelocity: 25,
-    decay: 0.92,
-    scalar: 1.2
-    })
-    fire(0.1, {
-    spread: 120,
-    startVelocity: 45,
-    })
+  fire(0.25, { spread: 26, startVelocity: 55 })
+  fire(0.2, { spread: 60 })
+  fire(0.35, { spread: 100, decay: 0.91, scalar: 0.8 })
+  fire(0.1, { spread: 120, startVelocity: 25, decay: 0.92, scalar: 1.2 })
+  fire(0.1, { spread: 120, startVelocity: 45 })
 }
 
-// 清空结果
+// 重置大屏数据 (执行清空)
 const clearResult = () => {
   pickedNames.value = []
   allPickedNames.value = []
   currentBatch.value = 1
   historyRecords.value = []
+  finalPickedNames.value = []
+  revealedCount.value = 0
+  isDrawing.value = false
+  isRevealing.value = false
+  if (drawingTimer) clearInterval(drawingTimer)
+  if (revealTimer) clearInterval(revealTimer)
+  ElMessage.success('数据重置成功')
 }
 
-// 清空输入
+// 重置二次安全确认
+const handleResetConfirm = () => {
+  ElMessageBox.confirm(
+    '确定要重置所有已抽取的名单和历史记录吗？此操作将清空大屏数据且不可撤销，请在现场谨慎操作。',
+    '重置二次确认',
+    {
+      confirmButtonText: '确定重置',
+      cancelButtonText: '取消',
+      type: 'warning',
+      buttonSize: 'default',
+      boxType: 'confirm',
+      center: true
+    }
+  ).then(() => {
+    clearResult()
+  }).catch(() => {
+    // 捕获取消，不做任何处理
+  })
+}
+
+// 清空名单输入
 const clearInput = () => {
   nameInput.value = ''
-  pickedNames.value = []
-  allPickedNames.value = []
-  currentBatch.value = 1
-  historyRecords.value = []
+  clearResult()
 }
 
+// 导出历史数据 (.txt)
 const exportHistory = () => {
   if (historyRecords.value.length === 0) {
-    ElMessage.warning('没有可导出的历史记录')
+    ElMessage.warning('暂无可以导出的历史记录')
     return
   }
   
-  // 历史记录是 unshift 进去的，所以是倒序的。导出时反转为正序。
   const orderedHistory = [...historyRecords.value].reverse()
-  
   const content = orderedHistory.map(record => {
-    const header = `第${record.batch}批/共${totalBatches.value}批：`
-    const names = record.names.join('\n')
-    return `${header}\n${names}`
+    return `第 ${record.batch} 轮抽取记录：\n${record.names.join('\n')}`
   }).join('\n\n')
   
   const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
@@ -350,419 +418,1071 @@ const exportHistory = () => {
   ElMessage.success('历史记录导出成功')
 }
 
-// 获取当前年份
+// 键盘快捷键监听
+const handleKeyDown = (e) => {
+  if (e.key === ' ' || e.code === 'Space') {
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') {
+      return
+    }
+    e.preventDefault()
+    if (isDrawing.value) {
+      stopDraw()
+    } else {
+      startDraw()
+    }
+  } else if (e.key === 'Escape' || e.code === 'Escape') {
+    e.preventDefault()
+    drawerVisible.value = !drawerVisible.value
+  }
+}
+
+onMounted(() => {
+  window.addEventListener('keydown', handleKeyDown)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('keydown', handleKeyDown)
+  if (drawingTimer) clearInterval(drawingTimer)
+  if (revealTimer) clearInterval(revealTimer)
+})
+
 const currentYear = computed(() => new Date().getFullYear())
 </script>
 
 <template>
-  <div class="random-picker-container">
-    <!-- 主内容区域 -->
-    <div class="main-content">
-      <!-- 左上：输入名单区域 -->
-      <div class="input-panel">
-        <el-card class="input-card">
-          <template #header>
-            <div class="card-header">
-              <span>输入名单<br>(一行一名)</span>
-              <div class="header-buttons">
-                <el-button type="primary" @click="triggerFileSelect" :disabled="isDrawing">
-                  <el-icon><Upload /></el-icon>导入名单
-                </el-button>
-                <input
-                  type="file"
-                  ref="fileInputRef"
-                  @change="handleFileImport"
-                  accept=".txt"
-                  style="display: none"
-                />
-                <el-button type="danger" @click="clearInput" :disabled="isDrawing">清空</el-button>
+  <div class="app-viewport">
+    <!-- 动态科技质感背景 -->
+    <div class="dynamic-background">
+      <div class="ambient-glow glow-1"></div>
+      <div class="ambient-glow glow-2"></div>
+      <div class="ambient-glow glow-3"></div>
+    </div>
+
+    <!-- 主界面区域 (垂直 Flex 布局，保证大底栏物理隔离不重合) -->
+    <div class="main-layout">
+      <!-- 名单展示核心区 (自适应填充剩余空间) -->
+      <main class="grid-content-area">
+        <!-- 空白状态下：居中面板（展示操作指南与实时关键参数） -->
+        <div v-if="pickedNames.length === 0" class="empty-placeholder-container">
+          <div class="center-dashboard-card">
+            <!-- 头部：操作指南 -->
+            <div class="dashboard-header">
+              <el-icon class="guide-icon"><Setting /></el-icon>
+              <span class="guide-title">操作指南</span>
+            </div>
+            
+            <div class="guide-steps">
+              <div class="step-item">
+                <span class="step-num">1</span>
+                <span class="step-text">按 <strong>[Esc] 键</strong> 或点击左下角 <strong>设置</strong> 导入名单 (.txt) 并配置参数</span>
               </div>
-            </div>
-          </template>
-          <el-input
-            v-model="nameInput"
-            type="textarea"
-            placeholder="请输入名单，每行一个名字，或者点击上方的导入按钮选择文本文件"
-            :disabled="isDrawing"
-            @input="adjustPickCount"
-          />
-          <div class="name-count">
-            <div>
-              已输入: <span class="highlight">{{ nameList.length }}</span> 人
-              <span v-if="allPickedNames.length > 0" class="picked-info">
-                已抽取: <span class="highlight">{{ allPickedNames.length }}</span> 人
-                <br>
-                (剩余: <span class="highlight">{{ nameList.length - allPickedNames.length }}</span> 人)
-              </span>
-            </div>
-            <div class="copyright-footer">
-              © {{ currentYear }} 信息科组小李. All Rights Reserved.
-            </div>
-          </div>
-        </el-card>
-      </div>
-      
-      <!-- 右上：抽取结果区域 -->
-      <div class="result-panel">
-        <el-card class="result-card">
-          <template #header>
-            <div class="card-header">
-              <span v-if="currentBatch > 1">第 {{ currentBatch - 1 }} 批次抽取结果 ({{ pickedNames.length }} 人)</span>
-              <span v-else>抽取结果 ({{ pickedNames.length }} 人)</span>
-            </div>
-          </template>
-          <div class="result-content">
-            <div v-if="pickedNames.length === 0" class="empty-result">
-              <el-empty description="等待抽取结果" />
-            </div>
-            <div v-else :class="resultGridClass">
-              <div v-for="(name, index) in pickedNames" :key="index" class="w-full h-full">
-                <div :class="nameCardClass">
-                  <span :style="getNameStyle(name)">{{ name }}</span>
-                </div>
+              <div class="step-item">
+                <span class="step-num">2</span>
+                <span class="step-text">点击左下角 <strong>开始</strong> 或按 <strong>[空格键]</strong> 开始高速滚动名字</span>
               </div>
-            </div>
-          </div>
-        </el-card>
-      </div>
-      
-      <!-- 左下：抽取控制区域 -->
-      <div class="control-panel">
-        <el-card>
-          <div class="draw-controls">
-            <div class="control-row">
-              <div class="control-group">
-                <span class="label">每批次人数:</span>
-                <el-input-number
-                  v-model="batchSize"
-                  :min="minPickCount"
-                  :max="maxPickCount"
-                  :disabled="isDrawing || nameList.length === 0"
-                />
-              </div>
-              
-              <div class="control-group">
-                <span class="label">总批次数:</span>
-                <el-input-number
-                  v-model="totalBatches"
-                  :min="1"
-                  :max="10"
-                  :disabled="isDrawing"
-                />
-              </div>
-              
-              <div class="control-group">
-                <span class="label">当前批次:</span>
-                <span class="batch-info">{{ currentBatch - 1 }}/{{ totalBatches }}</span>
+              <div class="step-item">
+                <span class="step-num">3</span>
+                <span class="step-text">点击左下角 <strong>停止</strong> 或按 <strong>[空格键]</strong> 逐个揭晓中签名单</span>
               </div>
             </div>
             
-            <div class="button-group">
-              <el-button
-                type="primary"
-                size="large"
-                @click="startDraw"
-                :disabled="isDrawing || nameList.length === 0 || currentBatch > totalBatches || nameList.length - allPickedNames.length === 0"
-              >
-                开始抽取
-              </el-button>
-              
-              <el-button
-                type="warning"
-                size="large"
-                @click="stopDraw"
-                :disabled="!isDrawing"
-              >
-                停止抽取
-              </el-button>
-              
-              <el-button 
-                size="large"
-                @click="clearResult" 
-                :disabled="isDrawing || (pickedNames.length === 0 && allPickedNames.length === 0)"
-              >
-                清空结果
-              </el-button>
-            </div>
-          </div>
-        </el-card>
-      </div>
-    </div>
-    
-    <!-- 底部：历史抽取记录区域 -->
-    <div class="history-panel">
-      <el-card class="history-card">
-        <template #header>
-          <div class="card-header">
-            <span>历史抽取记录</span>
-            <el-button
-              type="success"
-              size="small"
-              @click="exportHistory"
-              :disabled="historyRecords.length === 0"
-            >
-              一键导出所有记录
-            </el-button>
-          </div>
-        </template>
-        <div class="history-content">
-          <div v-if="historyRecords.length === 0" class="empty-history">
-            暂无历史抽取记录
-          </div>
-          <div v-else class="history-list">
-            <div v-for="record in historyRecords" :key="record.batch" class="history-batch">
-              <div class="history-batch-header">第 {{ record.batch }} 批:</div>
-              <div class="history-batch-names">
-                <el-tag
-                  v-for="(name, index) in record.names"
-                  :key="index"
-                  size="small"
-                  class="history-item"
-                >
-                  {{ name }}
-                </el-tag>
+            <div class="dashboard-divider"></div>
+            
+            <!-- 下部：名单、单批数、进度数据明细面板 -->
+            <div class="dashboard-stats-grid">
+              <div class="stat-item">
+                <span class="stat-label">名单总数</span>
+                <span class="stat-val highlight">{{ nameList.length }} 人</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">本轮抽取</span>
+                <span class="stat-val highlight-blue">{{ batchSize }} 人</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">已抽人数</span>
+                <span class="stat-val">{{ allPickedNames.length }} 人</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">奖池剩余</span>
+                <span class="stat-val highlight-green">{{ nameList.length - allPickedNames.length }} 人</span>
+              </div>
+              <div class="stat-item full-width">
+                <span class="stat-label">当前进度</span>
+                <span class="stat-val">{{ currentBatch - 1 }} / {{ totalBatches }} 轮</span>
               </div>
             </div>
           </div>
         </div>
-      </el-card>
+        
+        <!-- 抽签结果网格展示 -->
+        <div v-else class="grid-animation-wrapper">
+          <div :style="gridStyle" class="interactive-grid">
+            <div 
+              v-for="(name, index) in pickedNames" 
+              :key="index" 
+              class="name-card-wrapper"
+            >
+              <div 
+                class="name-card" 
+                :class="{ 
+                  'is-rolling': isDrawing && (!isRevealing || index >= revealedCount),
+                  'is-revealed': !isDrawing || (isRevealing && index < revealedCount)
+                }"
+              >
+                <!-- 名字再次加大，并使用特粗字体确保户外大屏易读性 -->
+                <span class="name-text" :style="getNameStyle(name)">{{ name }}</span>
+                <div class="card-glow"></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+
+      <!-- 底部控制与信息面板 (已精简收窄，高度及外边距大幅压缩，把空间彻底留给名字) -->
+      <footer class="app-bottom-bar">
+        <!-- 左侧：微型控制按钮组 (高度已缩减为 32px) -->
+        <div class="bottom-bar-left">
+          <template v-if="!isDrawing">
+            <el-button 
+              class="icon-pill-btn"
+              @click="drawerVisible = true"
+            >
+              <el-icon><Setting /></el-icon>
+              <span>设置</span>
+            </el-button>
+            
+            <el-button 
+              type="primary"
+              class="icon-pill-btn start-btn"
+              @click="startDraw"
+              :disabled="nameList.length === 0 || currentBatch > totalBatches || nameList.length - allPickedNames.length === 0"
+            >
+              <el-icon><VideoPlay /></el-icon>
+              <span>开始</span>
+            </el-button>
+            
+            <el-button 
+              class="icon-pill-btn danger"
+              @click="handleResetConfirm"
+              :disabled="pickedNames.length === 0 && allPickedNames.length === 0"
+            >
+              <el-icon><Refresh /></el-icon>
+              <span>重置</span>
+            </el-button>
+          </template>
+          
+          <template v-else>
+            <el-button 
+              type="danger"
+              class="icon-pill-btn stop-btn"
+              @click="stopDraw"
+              :disabled="isRevealing"
+            >
+              <el-icon class="pulse-icon"><VideoPause /></el-icon>
+              <span>{{ isRevealing ? '正在揭晓...' : '停止' }}</span>
+            </el-button>
+          </template>
+        </div>
+
+        <!-- 中间：标注轮次和奖池信息，字号已收窄为 13px (抽签时暗化处理) -->
+        <div class="bottom-bar-center" :class="{ 'dimmed-info': isDrawing }">
+          <div class="bottom-stats-container">
+            <span class="stat-capsule">进度 <span class="stat-highlight">{{ currentBatch - 1 }} / {{ totalBatches }}</span> 轮</span>
+            <span class="stat-divider">·</span>
+            <span class="stat-capsule">单批 <span class="stat-highlight">{{ batchSize }}</span> 人</span>
+            <span class="stat-divider">·</span>
+            <span class="stat-capsule">奖池剩余 <span class="stat-highlight">{{ nameList.length - allPickedNames.length }} / {{ nameList.length }}</span> 人</span>
+          </div>
+        </div>
+
+        <!-- 右侧：版权署名标注 (抽签时暗化处理) -->
+        <div class="bottom-bar-right" :class="{ 'dimmed-info': isDrawing }">
+          <span class="bottom-copyright">© 2026 信息科组小李 · 抽签系统</span>
+        </div>
+      </footer>
     </div>
+
+    <!-- 右侧高级设置面板 -->
+    <el-drawer
+      v-model="drawerVisible"
+      title="抽签系统控制台"
+      direction="rtl"
+      size="460px"
+      class="tech-drawer"
+      :destroy-on-close="false"
+    >
+      <div class="drawer-layout-container">
+        <!-- 基础配置 (大屏显示标题输入已移除) -->
+        <div class="settings-section">
+          <h3 class="section-title"><el-icon><Setting /></el-icon> 抽签基本设置</h3>
+          <div class="settings-form">
+            <div class="form-row">
+              <div class="form-item half">
+                <label>单批抽取人数</label>
+                <el-input-number 
+                  v-model="batchSize" 
+                  :min="minPickCount" 
+                  :max="maxPickCount" 
+                  class="w-full"
+                />
+              </div>
+              <div class="form-item half">
+                <label>总抽取轮数</label>
+                <el-input-number 
+                  v-model="totalBatches" 
+                  :min="1" 
+                  :max="100" 
+                  class="w-full"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 名单录入 -->
+        <div class="settings-section">
+          <div class="section-header-flex">
+            <h3 class="section-title"><el-icon><Aim /></el-icon> 名单管理</h3>
+            <div class="header-action-group">
+              <el-button type="primary" size="small" @click="triggerFileSelect" :disabled="isDrawing">
+                <el-icon><Upload /></el-icon> 导入
+              </el-button>
+              <input
+                type="file"
+                ref="fileInputRef"
+                @change="handleFileImport"
+                accept=".txt"
+                style="display: none"
+              />
+              <el-button type="danger" size="small" @click="clearInput" :disabled="isDrawing" plain>
+                <el-icon><Delete /></el-icon> 清空
+              </el-button>
+            </div>
+          </div>
+          
+          <el-input
+            v-model="nameInput"
+            type="textarea"
+            :rows="9"
+            placeholder="请输入名单，每行一个名字。或者点击导入按钮选择 .txt 文件。"
+            :disabled="isDrawing"
+            @input="adjustPickCount"
+            class="name-list-textarea"
+          />
+          
+          <div class="stats-panel-box">
+            <div class="stat-row-item">
+              <span>名单总人数</span>
+              <span class="stat-value-badge">{{ nameList.length }} 人</span>
+            </div>
+            <div class="stat-row-item">
+              <span>已抽取人数</span>
+              <span class="stat-value-badge text-blue">{{ allPickedNames.length }} 人</span>
+            </div>
+            <div class="stat-row-item">
+              <span>剩余可抽取</span>
+              <span class="stat-value-badge text-green">{{ nameList.length - allPickedNames.length }} 人</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 功能按钮 -->
+        <div class="settings-section">
+          <h3 class="section-title"><el-icon><Refresh /></el-icon> 数据重置与导出</h3>
+          <div class="action-grid-buttons">
+            <el-button type="success" class="action-btn-wide" @click="exportHistory" :disabled="historyRecords.length === 0">
+              <el-icon><Download /></el-icon> 导出历史记录
+            </el-button>
+            <el-button type="danger" class="action-btn-wide" @click="handleResetConfirm" :disabled="isDrawing" plain>
+              <el-icon><Refresh /></el-icon> 重置所有抽签数据
+            </el-button>
+          </div>
+        </div>
+
+        <!-- 历史记录 -->
+        <div class="settings-section flex-column-fill">
+          <h3 class="section-title"><el-icon><VideoPlay /></el-icon> 历史抽取记录</h3>
+          <div class="drawer-history-list">
+            <div v-if="historyRecords.length === 0" class="empty-history-placeholder">
+              暂无历史抽取记录
+            </div>
+            <div v-else class="history-list-cards">
+              <div v-for="record in historyRecords" :key="record.batch" class="history-record-card">
+                <div class="history-record-card-header">
+                  <span class="record-batch-badge">第 {{ record.batch }} 轮</span>
+                  <span class="record-count-badge">抽取 {{ record.names.length }} 人</span>
+                </div>
+                <div class="history-record-card-names">
+                  <span v-for="(name, idx) in record.names" :key="idx" class="history-name-tag">
+                    {{ name }}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- 页脚 -->
+        <footer class="drawer-footer-copyright">
+          <span>© {{ currentYear }} 信息科组小李 · 抽签系统</span>
+        </footer>
+      </div>
+    </el-drawer>
   </div>
 </template>
 
 <style scoped>
-.random-picker-container {
+/* 核心视口与字体设定 */
+.app-viewport {
   width: 100vw;
   height: 100vh;
   margin: 0;
   padding: 0;
   box-sizing: border-box;
   overflow: hidden;
-  background-color: #f5f7fa;
-  display: flex;
-  flex-direction: column;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: #1d1d1f;
 }
 
-.main-content {
+/* 动态科技背景 - 浅色 Apple 风格 */
+.dynamic-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: #f5f5f7;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.ambient-glow {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(140px);
+  opacity: 0.45;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  animation: floatAmbient 20s infinite alternate ease-in-out;
+}
+
+.glow-1 {
+  width: 50vw;
+  height: 50vw;
+  background: radial-gradient(circle, rgba(0, 122, 255, 0.18) 0%, transparent 70%);
+  top: -15%;
+  left: -10%;
+}
+
+.glow-2 {
+  width: 60vw;
+  height: 60vw;
+  background: radial-gradient(circle, rgba(175, 82, 222, 0.14) 0%, transparent 70%);
+  bottom: -20%;
+  right: -10%;
+  animation-delay: -5s;
+}
+
+.glow-3 {
+  width: 45vw;
+  height: 45vw;
+  background: radial-gradient(circle, rgba(52, 199, 89, 0.08) 0%, transparent 70%);
+  top: 30%;
+  left: 40%;
+  animation-delay: -10s;
+}
+
+@keyframes floatAmbient {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(8%, 10%) scale(1.1);
+  }
+}
+
+/* 页面主要骨架 - 保持纵向独立比例 */
+.main-layout {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 24px 12px 24px; /* 上下内边距收窄 */
+  box-sizing: border-box;
+}
+
+/* 展示大区 */
+.grid-content-area {
   flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.empty-placeholder-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 汇总信息卡片置于正中间 (改版为操作指南和状态明细表) */
+.center-dashboard-card {
+  backdrop-filter: blur(30px);
+  background: rgba(255, 255, 255, 0.75);
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+  border-radius: 32px;
+  padding: 44px 52px;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  width: 580px;
+  box-sizing: border-box;
+  animation: zoomFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes zoomFadeIn {
+  from {
+    transform: scale(0.95);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 22px;
+}
+
+.guide-icon {
+  font-size: 24px;
+  color: #007aff;
+}
+
+.guide-title {
+  font-size: 24px;
+  font-weight: 800;
+  color: #1d1d1f;
+  letter-spacing: -0.01em;
+}
+
+.guide-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 22px;
+}
+
+.step-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.step-num {
+  width: 20px;
+  height: 20px;
+  background: rgba(0, 122, 255, 0.1);
+  color: #007aff;
+  font-size: 11px;
+  font-weight: 700;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.step-text {
+  font-size: 14px;
+  line-height: 1.5;
+  color: #515154;
+}
+
+.step-text strong {
+  color: #1d1d1f;
+  font-weight: 700;
+}
+
+.dashboard-divider {
+  width: 100%;
+  height: 1px;
+  background: rgba(0, 0, 0, 0.06);
+  margin-bottom: 22px;
+}
+
+.dashboard-stats-grid {
   display: grid;
-  grid-template-columns: 0.1fr 1.9fr;
-  grid-template-rows: 1fr auto;
-  gap: 10px;
-  padding: 10px;
-  height: 0; /* 重要：让flex子元素可以缩小 */
-  min-height: 0; /* 重要：允许网格收缩 */
-  grid-template-areas: 
-    "input result"
-    "control result";
-}
-
-.input-panel {
-  grid-area: input;
-  min-height: 0;
-}
-
-.result-panel {
-  grid-area: result;
-  min-height: 0;
-}
-
-.control-panel {
-  grid-area: control;
-  min-height: 0;
-}
-
-.input-card {
-  height: 100%;
-}
-
-.result-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.result-content {
-  flex: 1;
-  overflow: auto;
-  padding: 0;
-}
-
-.history-panel {
-  flex: 0 0 170px;
-  padding: 0 10px 10px 10px;
-  display: flex;
-  flex-direction: column;
-  min-height: 0; /* 允许在flex布局中收缩 */
-}
-
-.history-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  flex: 1;
-}
-
-.history-content {
-  overflow-y: auto;
-  height: 100%;
-}
-
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.header-buttons {
-  display: flex;
-  gap: 10px;
-}
-
-.name-count {
-  margin-top: 10px;
-  text-align: right;
-  color: #606266;
-  min-height: 100px;
-  display: flex;
-  flex-direction: column;
-  justify-content: space-between;
-}
-
-.picked-info {
-  margin-left: 15px;
-}
-
-.copyright-footer {
-  font-size: 12px;
-  color: #909399;
-}
-
-.highlight {
-  color: #409EFF;
-  font-weight: bold;
-  font-size: 1.1em;
-}
-
-.draw-controls {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 15px;
-  padding: 10px 0;
-}
-
-.control-row {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-around;
-  width: 100%;
-  gap: 10px;
-}
-
-.control-group {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-
-.button-group {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 10px;
-  margin-top: 10px;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px 24px;
   width: 100%;
 }
 
-.label {
+.stat-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   font-size: 16px;
-  min-width: 90px;
-  text-align: right;
+  font-weight: 600;
+  color: #86868b;
+  border-bottom: 1px dashed rgba(0, 0, 0, 0.04);
+  padding-bottom: 6px;
 }
 
-.batch-info {
-  font-size: 18px;
-  font-weight: bold;
-  color: #409EFF;
+.stat-item.full-width {
+  grid-column: span 2;
+  border-bottom: none;
+  padding-bottom: 0;
 }
 
-.empty-result {
+.stat-item .stat-label {
+  color: #86868b;
+}
+
+.stat-item .stat-val {
+  color: #1d1d1f;
+  font-weight: 700;
+}
+
+.stat-item .stat-val.highlight {
+  color: #1d1d1f;
+}
+
+.stat-item .stat-val.highlight-blue {
+  color: #007aff;
+}
+
+.stat-item .stat-val.highlight-green {
+  color: #34c759;
+}
+
+.grid-animation-wrapper {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+}
+
+.interactive-grid {
+  width: 100%;
+  height: 100%;
+}
+
+.name-card-wrapper {
+  width: 100%;
+  height: 100%;
+  perspective: 1000px;
+}
+
+/* 核心抽签名字卡片 */
+.name-card {
   width: 100%;
   height: 100%;
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.02), inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  backdrop-filter: blur(10px);
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
-.history-list {
-  display: flex;
-  flex-direction: column;
-  gap: 15px;
+/* 滚动抽签状态 */
+.name-card.is-rolling {
+  transform: scale(0.96);
+  background: rgba(255, 255, 255, 0.95);
+  border-color: rgba(0, 122, 255, 0.35);
+  box-shadow: 0 0 24px rgba(0, 122, 255, 0.14);
 }
 
-.history-batch {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  height: auto;
+.name-card.is-rolling .name-text {
+  filter: blur(0.6px);
+  opacity: 0.85;
+  color: #007aff; /* 滚动时名字呈现亮眼的苹果科技蓝 */
 }
 
-.history-batch-header {
-  font-weight: bold;
-  color: #303133;
+/* 揭晓锁定状态 */
+.name-card.is-revealed {
+  animation: revealSpring 0.55s cubic-bezier(0.175, 0.885, 0.32, 1.25) forwards;
+  background: linear-gradient(135deg, #ffffff 0%, #fbfbfd 100%);
+  border-color: rgba(212, 175, 55, 0.35); /* 精致的淡金色边框，富有高级感 */
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.05), inset 0 1px 0 rgba(255, 255, 255, 0.95);
 }
 
-.history-batch-names {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+.name-card.is-revealed .name-text {
+  color: #1d1d1f;
+  font-weight: 900; /* 特粗设计，大屏视觉可读性最强 */
+  text-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
-.history-item {
-  margin: 2px;
-}
-
-.empty-history {
+/* 顶部科技感双色微渐变饰条 */
+.name-card.is-revealed::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
   width: 100%;
+  height: 5px;
+  background: linear-gradient(90deg, #007aff, #8962e7);
+  opacity: 0.95;
+}
+
+@keyframes revealSpring {
+  0% {
+    transform: scale(0.8) translateY(12px);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+
+.name-text {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro SC", "SF Pro Text", "PingFang SC", sans-serif;
   text-align: center;
-  color: #909399;
-  padding: 40px 0;
+  transition: all 0.3s ease;
+  white-space: nowrap;
+  line-height: 1.1;
+}
+
+.card-glow {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.45) 0%, transparent 60%);
+  z-index: 1;
+}
+
+/* 一体化底部控制信息栏 (高度和外边距已大幅缩减，专注于操作台的辅助定位) */
+.app-bottom-bar {
+  height: 48px; /* 从 64px 缩减到 48px */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  flex-shrink: 0;
+  backdrop-filter: blur(25px);
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.7);
+  border-top: 1px solid rgba(255, 255, 255, 0.8);
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  border-radius: 14px;
+  z-index: 10;
+  box-sizing: border-box;
+  margin-top: 8px; /* 从 16px 缩减到 8px，完全释放名字空间 */
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* 左侧：按钮区域 */
+.bottom-bar-left {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
+}
+
+.icon-pill-btn {
+  border-radius: 9999px !important;
+  font-weight: 600 !important;
+  height: 32px !important; /* 从 40px 缩减到 32px */
+  padding: 0 14px !important;
+  font-size: 13px !important;
+  border: 1px solid rgba(0, 0, 0, 0.05) !important;
+  background: rgba(255, 255, 255, 0.7) !important;
+  backdrop-filter: blur(20px) !important;
+  color: #1d1d1f !important;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.02) !important;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.icon-pill-btn:hover {
+  background: rgba(255, 255, 255, 0.95) !important;
+  transform: translateY(-1px);
+}
+
+.icon-pill-btn.start-btn {
+  background: linear-gradient(185deg, #007aff, #005ecb) !important;
+  color: white !important;
+  border: none !important;
+  box-shadow: 0 3px 8px rgba(0, 122, 255, 0.15) !important;
+}
+
+.icon-pill-btn.start-btn:hover {
+  box-shadow: 0 4px 12px rgba(0, 122, 255, 0.25) !important;
+}
+
+.icon-pill-btn.stop-btn {
+  background: linear-gradient(185deg, #ff3b30, #d01d12) !important;
+  color: white !important;
+  border: none !important;
+  box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15) !important;
+  animation: pulseGlowBtn 1.5s infinite;
+}
+
+@keyframes pulseGlowBtn {
+  0% { transform: scale(1); box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15); }
+  50% { transform: scale(1.02); box-shadow: 0 5px 12px rgba(255, 59, 48, 0.25); }
+  100% { transform: scale(1); box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15); }
+}
+
+.icon-pill-btn.danger {
+  color: #ff3b30 !important;
+}
+
+.icon-pill-btn.danger:hover {
+  background: rgba(255, 59, 48, 0.05) !important;
+  border-color: rgba(255, 59, 48, 0.15) !important;
+}
+
+.icon-pill-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+  background: rgba(0, 0, 0, 0.04) !important;
+  color: rgba(0, 0, 0, 0.25) !important;
+  border: 1px solid rgba(0, 0, 0, 0.03) !important;
+}
+
+.pulse-icon {
+  animation: spinPulse 1s infinite linear;
+}
+
+@keyframes spinPulse {
+  0% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+  100% { transform: scale(1); }
+}
+
+/* 中间：信息标注区域 (字号和间距已缩窄) */
+.bottom-bar-center {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: 2;
+  transition: all 0.3s ease;
+}
+
+.bottom-bar-center.dimmed-info {
+  opacity: 0.35;
+}
+
+.bottom-stats-container {
+  display: flex;
+  align-items: center;
+  gap: 10px; /* 间距缩减 */
+  font-size: 13px; /* 字号缩小到 13px，非常低调 */
+  font-weight: 700;
+  color: #86868b;
+}
+
+.stat-capsule {
+  color: #86868b;
+}
+
+.stat-highlight {
+  color: #515154; /* 调低亮度，防喧宾夺主 */
+  font-weight: 800;
+}
+
+.stat-divider {
+  color: rgba(0, 0, 0, 0.1);
   font-size: 14px;
 }
 
-:deep(.el-card__body) {
-  height: calc(100% - 100px);
-  overflow: hidden;
+/* 右侧：版权标注区域 (字号弱化) */
+.bottom-bar-right {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 1;
+  transition: all 0.3s ease;
+}
+
+.bottom-bar-right.dimmed-info {
+  opacity: 0.35;
+}
+
+.bottom-copyright {
+  font-size: 12px; /* 版权标志缩至 12px，极简设计 */
+  font-weight: 600;
+  color: rgba(0, 0, 0, 0.3);
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+}
+
+/* 右侧高级设置面板抽屉 */
+:deep(.tech-drawer) {
+  background-color: #fbfbfd !important;
+  backdrop-filter: blur(20px);
+}
+
+:deep(.el-drawer__header) {
+  margin-bottom: 16px;
+  padding: 24px 24px 0 24px;
+}
+
+:deep(.el-drawer__title) {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1d1d1f;
+}
+
+:deep(.el-drawer__body) {
+  padding: 0 24px 24px 24px;
+}
+
+.drawer-layout-container {
+  height: 100%;
   display: flex;
   flex-direction: column;
+  gap: 24px;
 }
 
-:deep(.el-card__body) .el-textarea {
-  flex: 1; /* 让文本域占据所有可用空间 */
-  min-height: 0; /* 允许文本域收缩 */
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
-:deep(.el-textarea__inner) {
-  height: 100% !important;
+.settings-section.flex-column-fill {
+  flex: 1;
+  min-height: 0;
 }
 
-.history-card :deep(.el-card__body) {
-  height: 100%;
+.section-title {
+  font-size: 15px;
+  font-weight: 700;
+  color: #86868b;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  letter-spacing: 0.03em;
 }
 
-.history-card :deep(.el-card__header) {
-  padding: 10px 20px;
+.section-header-flex {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
-@media (max-width: 1200px) {
-  .main-content {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto auto auto;
-    grid-template-areas: 
-      "input"
-      "control"
-      "result";
-  }
+.header-action-group {
+  display: flex;
+  gap: 8px;
 }
-</style> 
+
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.form-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-item label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #1d1d1f;
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+}
+
+.form-item.half {
+  flex: 1;
+}
+
+.name-list-textarea :deep(.el-textarea__inner) {
+  border-radius: 12px;
+  font-family: monospace;
+  font-size: 13px;
+  border-color: rgba(0, 0, 0, 0.08);
+  background: #ffffff;
+  padding: 12px;
+  transition: all 0.3s;
+}
+
+.name-list-textarea :deep(.el-textarea__inner:focus) {
+  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+  border-color: #007aff;
+}
+
+/* 抽屉内统计卡片 */
+.stats-panel-box {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.stat-row-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: #515154;
+}
+
+.stats-panel-box .stat-row-item:last-child {
+  border-top: 1px solid rgba(0, 0, 0, 0.03);
+  padding-top: 10px;
+}
+
+.stat-value-badge {
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  color: #1d1d1f;
+  font-weight: 700;
+}
+
+.stat-value-badge.text-blue {
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.05);
+  border-color: rgba(0, 122, 255, 0.1);
+}
+
+.stat-value-badge.text-green {
+  color: #34c759;
+  background: rgba(52, 199, 89, 0.05);
+  border-color: rgba(52, 199, 89, 0.1);
+}
+
+/* 操作区域 */
+.action-grid-buttons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.action-btn-wide {
+  border-radius: 10px !important;
+  font-weight: 600 !important;
+  height: 38px !important;
+}
+
+/* 抽屉内历史记录 */
+.drawer-history-list {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  background: #ffffff;
+  border-radius: 14px;
+  overflow-y: auto;
+  padding: 14px;
+}
+
+.empty-history-placeholder {
+  text-align: center;
+  color: #86868b;
+  font-size: 13px;
+  padding: 40px 0;
+}
+
+.history-list-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.history-record-card {
+  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+  padding-bottom: 12px;
+}
+
+.history-record-card:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.history-record-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.record-batch-badge {
+  font-size: 12px;
+  font-weight: 700;
+  background: #1d1d1f;
+  color: #ffffff;
+  padding: 2px 8px;
+  border-radius: 6px;
+}
+
+.record-count-badge {
+  font-size: 11px;
+  color: #86868b;
+  font-weight: 600;
+}
+
+.history-record-card-names {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.history-name-tag {
+  background: #f5f5f7;
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  color: #515154;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.drawer-footer-copyright {
+  text-align: center;
+  font-size: 11px;
+  color: #86868b;
+  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  padding-top: 16px;
+}
+
+/* 针对 Element Plus 组件的部分覆盖适配 */
+.w-full {
+  width: 100%;
+}
+</style>
