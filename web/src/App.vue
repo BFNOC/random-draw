@@ -15,7 +15,7 @@ html, body {
   width: 100%;
   height: 100%;
   overflow: hidden;
-  background-color: #f5f7fa;
+  background-color: oklch(98% 0.012 248);
 }
 
 .app-container {

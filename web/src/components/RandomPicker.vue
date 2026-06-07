@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   Upload, 
@@ -9,7 +9,8 @@ import {
   Refresh, 
   Aim, 
   Download, 
-  Delete 
+  Delete,
+  Close
 } from '@element-plus/icons-vue'
 import confetti from 'canvas-confetti'
 
@@ -49,6 +50,8 @@ const isRevealing = ref(false)
 const revealedCount = ref(0)
 // 控制面板抽屉显示状态
 const drawerVisible = ref(false)
+// 控制台默认落在准备页，让首次使用路径更短。
+const activeSettingsTab = ref('prepare')
 
 // 计时器引用
 let drawingTimer = null
@@ -63,11 +66,86 @@ const audioFileInputRef = ref(null)
 const historyRecords = ref([])
 // 最终录入的幸运儿名单
 const finalPickedNames = ref([])
-// 自定义 MP3 结束音效
+// 自定义本地结束音效
 const customAudioName = ref('')
 const customAudioElement = ref(null)
 const hasCustomResultSound = computed(() => Boolean(customAudioElement.value))
 const resultSoundLabel = computed(() => customAudioName.value || '合成音效')
+
+// 这些人数可以组成完整矩形网格，适合让姓名尽量吃满单元格横向空间。
+const fullGridFillConfigs = {
+  1: { columns: 1, preferredVw: 17 },
+  2: { columns: 2, preferredVw: 12 },
+  4: { columns: 2, preferredVw: 9 },
+  8: { columns: 4, preferredVw: 7 },
+  20: { columns: 5, preferredVw: 3.3 },
+  40: { columns: 8, preferredVw: 2.25 },
+  50: { columns: 10, preferredVw: 1.95 }
+}
+
+const getFullGridNameScale = (count, length) => {
+  const config = fullGridFillConfigs[count]
+  if (!config || length < 2) return null
+
+  // 四字及以上按更宽的视觉占位处理，避免只按字符数放大导致溢出。
+  const weightedLength = length >= 4 ? Math.min(length + 0.5, 6) : length === 2 ? 2.08 : 3
+  const scale = 82 / (config.columns * config.preferredVw * weightedLength)
+
+  return Math.min(2.45, Math.max(0.72, Number(scale.toFixed(2))))
+}
+
+const completedBatchCount = computed(() => Math.max(0, currentBatch.value - 1))
+const remainingCount = computed(() => Math.max(0, nameList.value.length - allPickedNames.value.length))
+const canStartDraw = computed(() => {
+  return nameList.value.length > 0
+    && batchSize.value > 0
+    && currentBatch.value <= totalBatches.value
+    && remainingCount.value > 0
+    && !isDrawing.value
+})
+
+const readinessStatus = computed(() => {
+  if (nameList.value.length === 0) return '先导入名单'
+  if (batchSize.value <= 0) return '设置单批人数'
+  if (remainingCount.value === 0) return '名单已抽完'
+  if (currentBatch.value > totalBatches.value) return '轮数已完成'
+  return '可以开始'
+})
+
+const setupSteps = computed(() => [
+  {
+    label: '导入名单',
+    detail: nameList.value.length > 0 ? `${nameList.value.length} 人已进入奖池` : '粘贴名单或选择 TXT 文件',
+    done: nameList.value.length > 0
+  },
+  {
+    label: '确认人数',
+    detail: batchSize.value > 0 ? `每轮抽取 ${batchSize.value} 人` : '设置每轮抽取人数',
+    done: batchSize.value > 0
+  },
+  {
+    label: '开始抽签',
+    detail: canStartDraw.value ? '准备完成' : readinessStatus.value,
+    done: canStartDraw.value
+  }
+])
+
+const syncLocalizedAriaLabels = async () => {
+  await nextTick()
+
+  document.querySelectorAll('.tech-drawer .el-input-number__decrease').forEach((button) => {
+    button.setAttribute('aria-label', '减少数字')
+  })
+  document.querySelectorAll('.tech-drawer .el-input-number__increase').forEach((button) => {
+    button.setAttribute('aria-label', '增加数字')
+  })
+}
+
+const openDrawer = async (tab = 'prepare') => {
+  activeSettingsTab.value = tab
+  drawerVisible.value = true
+  await syncLocalizedAriaLabels()
+}
 
 // 动态计算网格的样式
 const gridStyle = computed(() => {
@@ -99,6 +177,8 @@ const gridStyle = computed(() => {
     cols = 6; rows = 5;
   } else if (count <= 36) {
     cols = 6; rows = 6;
+  } else if (count === 40) {
+    cols = 8; rows = 5;
   } else if (count <= 42) {
     cols = 7; rows = 6;
   } else if (count <= 49) {
@@ -174,6 +254,12 @@ const getNameStyle = (name) => {
   if (!name) return {}
   const length = name.length
   const styles = { ...nameCardStyle.value }
+  const fullGridScale = getFullGridNameScale(pickedNames.value.length, length)
+
+  if (fullGridScale) {
+    styles.fontSize = `calc(${styles.fontSize} * ${fullGridScale})`
+    return styles
+  }
   
   if (length >= 4) {
     styles.fontSize = `calc(${styles.fontSize} * 0.74)`
@@ -224,8 +310,10 @@ const clearCustomResultSound = (showMessage = true) => {
   }
 }
 
-const isMp3File = (file) => {
-  return file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')
+const isSupportedResultSoundFile = (file) => {
+  const fileName = file.name.toLowerCase()
+  const supportedMimeTypes = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/vnd.wave']
+  return supportedMimeTypes.includes(file.type) || fileName.endsWith('.mp3') || fileName.endsWith('.wav')
 }
 
 // 通过浏览器解码检查文件是否真能播放，避免只看扩展名导致现场无声。
@@ -244,7 +332,7 @@ const createValidatedAudioElement = (objectUrl) => {
     }
 
     const timer = window.setTimeout(() => {
-      finish(() => reject(new Error('MP3 音效加载超时')))
+      finish(() => reject(new Error('结束音效加载超时')))
     }, 5000)
 
     audio.preload = 'auto'
@@ -252,7 +340,7 @@ const createValidatedAudioElement = (objectUrl) => {
       finish(() => resolve(audio))
     }
     audio.onerror = () => {
-      finish(() => reject(new Error('MP3 音效无法播放')))
+      finish(() => reject(new Error('结束音效无法播放')))
     }
     audio.src = objectUrl
     audio.load()
@@ -267,8 +355,8 @@ const handleAudioFileImport = async (event) => {
   const file = event.target.files?.[0]
   if (!file) return
 
-  if (!isMp3File(file)) {
-    ElMessage.error('请选择 MP3 音频文件')
+  if (!isSupportedResultSoundFile(file)) {
+    ElMessage.error('请选择 MP3 或 WAV 音频文件')
     clearCustomResultSound(false)
     resetAudioFileInput()
     return
@@ -282,12 +370,12 @@ const handleAudioFileImport = async (event) => {
     customAudioObjectUrl = objectUrl
     customAudioElement.value = audio
     customAudioName.value = file.name
-    ElMessage.success('已启用 MP3 结束音效')
+    ElMessage.success('已启用本地结束音效')
   } catch (error) {
     URL.revokeObjectURL(objectUrl)
     clearCustomResultSound(false)
-    console.warn('MP3 结束音效加载失败', error)
-    ElMessage.error('MP3 文件无法播放，已使用合成音效')
+    console.warn('本地结束音效加载失败', error)
+    ElMessage.error('音频文件无法播放，已使用合成音效')
   } finally {
     resetAudioFileInput()
   }
@@ -332,7 +420,7 @@ const prepareCustomResultSound = async () => {
     audio.pause()
     audio.currentTime = 0
   } catch (error) {
-    console.warn('MP3 结束音效初始化失败', error)
+    console.warn('本地结束音效初始化失败', error)
   } finally {
     audio.volume = previousVolume
   }
@@ -358,7 +446,7 @@ const playCustomResultSound = async () => {
     await audio.play()
     return true
   } catch (error) {
-    console.warn('播放 MP3 结束音效失败', error)
+    console.warn('播放本地结束音效失败', error)
     return false
   }
 }
@@ -435,7 +523,7 @@ const playDrawCompleteSound = async () => {
   if (playedCustomSound) return
 
   if (hasCustomResultSound.value) {
-    ElMessage.warning('MP3 音效播放失败，已使用合成音效')
+    ElMessage.warning('本地音效播放失败，已使用合成音效')
   }
 
   await playSynthResultSound()
@@ -742,44 +830,72 @@ const appVersion = __APP_VERSION__
     <div class="main-layout">
       <!-- 名单展示核心区 (自适应填充剩余空间) -->
       <main class="grid-content-area">
-        <!-- 空白状态下：居中面板（展示实时关键参数） -->
+        <!-- 空白状态下：直接呈现准备路径，避免首次使用者猜入口。 -->
         <div v-if="pickedNames.length === 0" class="empty-placeholder-container">
-          <div class="center-dashboard-card">
-            <!-- 头部：待机状态 -->
-            <div class="dashboard-header">
-              <el-icon class="dashboard-icon"><Aim /></el-icon>
-              <div class="standby-copy">
-                <span class="dashboard-title">{{ nameList.length > 0 ? '名单已就绪' : '抽签待开始' }}</span>
-                <span class="dashboard-subtitle">{{ nameList.length > 0 ? `${nameList.length} 人进入奖池` : '等待名单导入' }}</span>
+          <section class="center-dashboard-card" aria-labelledby="standby-title">
+            <div class="standby-main">
+              <div class="standby-kicker">现场准备</div>
+              <h1 id="standby-title" class="dashboard-title">
+                {{ nameList.length > 0 ? '名单已就绪' : '抽签待开始' }}
+              </h1>
+              <p class="dashboard-subtitle">
+                {{ nameList.length > 0 ? `${nameList.length} 人进入奖池，确认单批人数后即可开始。` : '先导入名单，再确认每轮抽取人数。' }}
+              </p>
+
+              <div class="standby-actions" aria-label="抽签准备操作">
+                <el-button
+                  type="primary"
+                  class="standby-primary-btn"
+                  @click="nameList.length === 0 ? openDrawer('prepare') : startDraw()"
+                  :disabled="nameList.length > 0 && !canStartDraw"
+                >
+                  <el-icon>
+                    <Upload v-if="nameList.length === 0" />
+                    <VideoPlay v-else />
+                  </el-icon>
+                  <span>{{ nameList.length === 0 ? '导入名单' : '开始抽签' }}</span>
+                </el-button>
+                <el-button class="standby-secondary-btn" @click="openDrawer('prepare')">
+                  <el-icon><Setting /></el-icon>
+                  <span>准备设置</span>
+                </el-button>
               </div>
             </div>
-            
-            <div class="dashboard-divider"></div>
-            
-            <!-- 下部：名单、单批数、进度数据明细面板 -->
-            <div class="dashboard-stats-grid">
-              <div class="stat-item">
-                <span class="stat-label">名单总数</span>
-                <span class="stat-val highlight">{{ nameList.length }} 人</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">单批人数</span>
-                <span class="stat-val highlight-blue">{{ batchSize }} 人</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">已抽人数</span>
-                <span class="stat-val">{{ allPickedNames.length }} 人</span>
-              </div>
-              <div class="stat-item">
-                <span class="stat-label">奖池剩余</span>
-                <span class="stat-val highlight-green">{{ nameList.length - allPickedNames.length }} 人</span>
-              </div>
-              <div class="stat-item full-width">
-                <span class="stat-label">当前进度</span>
-                <span class="stat-val">{{ currentBatch - 1 }} / {{ totalBatches }} 轮</span>
+
+            <div class="setup-progress" aria-label="准备进度">
+              <div
+                v-for="(step, index) in setupSteps"
+                :key="step.label"
+                class="setup-step"
+                :class="{ 'is-done': step.done, 'is-current': !step.done && setupSteps.slice(0, index).every(item => item.done) }"
+              >
+                <span class="setup-step-index">{{ index + 1 }}</span>
+                <span class="setup-step-copy">
+                  <span class="setup-step-label">{{ step.label }}</span>
+                  <span class="setup-step-detail">{{ step.detail }}</span>
+                </span>
               </div>
             </div>
-          </div>
+
+            <dl class="standby-metrics" aria-label="抽签状态概览">
+              <div>
+                <dt>名单</dt>
+                <dd>{{ nameList.length }} 人</dd>
+              </div>
+              <div>
+                <dt>单批</dt>
+                <dd>{{ batchSize }} 人</dd>
+              </div>
+              <div>
+                <dt>剩余</dt>
+                <dd>{{ remainingCount }} 人</dd>
+              </div>
+              <div>
+                <dt>进度</dt>
+                <dd>{{ completedBatchCount }} / {{ totalBatches }} 轮</dd>
+              </div>
+            </dl>
+          </section>
         </div>
         
         <!-- 抽签结果网格展示 -->
@@ -813,7 +929,7 @@ const appVersion = __APP_VERSION__
           <template v-if="!isDrawing">
             <el-button 
               class="icon-pill-btn"
-              @click="drawerVisible = true"
+              @click="openDrawer('prepare')"
             >
               <el-icon><Setting /></el-icon>
               <span>设置</span>
@@ -823,7 +939,7 @@ const appVersion = __APP_VERSION__
               type="primary"
               class="icon-pill-btn start-btn"
               @click="startDraw"
-              :disabled="nameList.length === 0 || batchSize <= 0 || currentBatch > totalBatches || nameList.length - allPickedNames.length === 0"
+              :disabled="!canStartDraw"
             >
               <el-icon><VideoPlay /></el-icon>
               <span>开始</span>
@@ -859,7 +975,7 @@ const appVersion = __APP_VERSION__
             <span class="stat-divider">·</span>
             <span class="stat-capsule">单批 <span class="stat-highlight">{{ batchSize }}</span> 人</span>
             <span class="stat-divider">·</span>
-            <span class="stat-capsule">奖池剩余 <span class="stat-highlight">{{ nameList.length - allPickedNames.length }} / {{ nameList.length }}</span> 人</span>
+            <span class="stat-capsule">奖池剩余 <span class="stat-highlight">{{ remainingCount }} / {{ nameList.length }}</span> 人</span>
           </div>
         </div>
 
@@ -875,154 +991,194 @@ const appVersion = __APP_VERSION__
       v-model="drawerVisible"
       title="抽签系统控制台"
       direction="rtl"
-      size="460px"
+      size="min(520px, 100vw)"
       class="tech-drawer"
       :destroy-on-close="false"
+      :show-close="false"
+      @opened="syncLocalizedAriaLabels"
     >
+      <template #header>
+        <div class="drawer-custom-header">
+          <div>
+            <p class="drawer-eyebrow">抽签控制台</p>
+            <h2>现场准备</h2>
+          </div>
+          <button class="drawer-close-btn" type="button" aria-label="关闭抽签控制台" @click="drawerVisible = false">
+            <el-icon><Close /></el-icon>
+          </button>
+        </div>
+      </template>
       <div class="drawer-layout-container">
-        <!-- 基础配置 (大屏显示标题输入已移除) -->
-        <div class="settings-section">
-          <h3 class="section-title"><el-icon><Setting /></el-icon> 抽签基本设置</h3>
-          <div class="settings-form">
-            <div class="form-row">
-              <div class="form-item half">
-                <label>单批抽取人数</label>
-                <el-input-number 
-                  v-model="batchSize" 
-                  :min="minPickCount" 
-                  :max="maxPickCount" 
-                  class="w-full"
-                />
-              </div>
-              <div class="form-item half">
-                <label>总抽取轮数</label>
-                <el-input-number 
-                  v-model="totalBatches" 
-                  :min="1" 
-                  :max="100" 
-                  class="w-full"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
+        <el-tabs v-model="activeSettingsTab" class="drawer-tabs">
+          <el-tab-pane name="prepare">
+            <template #label>
+              <span class="drawer-tab-label"><el-icon><Aim /></el-icon> 准备</span>
+            </template>
 
-        <!-- 名单录入 -->
-        <div class="settings-section">
-          <div class="section-header-flex">
-            <h3 class="section-title"><el-icon><Aim /></el-icon> 名单管理</h3>
-            <div class="header-action-group">
-              <el-button type="primary" size="small" @click="triggerFileSelect" :disabled="isDrawing">
-                <el-icon><Upload /></el-icon> 导入
-              </el-button>
-              <input
-                type="file"
-                ref="fileInputRef"
-                @change="handleFileImport"
-                accept=".txt"
-                style="display: none"
-              />
-              <el-button type="danger" size="small" @click="clearInput" :disabled="isDrawing" plain>
-                <el-icon><Delete /></el-icon> 清空
-              </el-button>
-            </div>
-          </div>
-          
-          <el-input
-            v-model="nameInput"
-            type="textarea"
-            :rows="9"
-            placeholder="请输入名单，每行一个名字。或者点击导入按钮选择 .txt 文件。"
-            :disabled="isDrawing"
-            class="name-list-textarea"
-          />
-          
-          <div class="stats-panel-box">
-            <div class="stat-row-item">
-              <span>名单总人数</span>
-              <span class="stat-value-badge">{{ nameList.length }} 人</span>
-            </div>
-            <div class="stat-row-item">
-              <span>已抽取人数</span>
-              <span class="stat-value-badge text-blue">{{ allPickedNames.length }} 人</span>
-            </div>
-            <div class="stat-row-item">
-              <span>剩余可抽取</span>
-              <span class="stat-value-badge text-green">{{ nameList.length - allPickedNames.length }} 人</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- 结束音效 -->
-        <div class="settings-section">
-          <h3 class="section-title"><el-icon><VideoPlay /></el-icon> 结束音效</h3>
-          <div class="sound-panel-box">
-            <div class="sound-current-row">
-              <span class="sound-label">当前音效</span>
-              <span
-                class="sound-name"
-                :class="{ 'is-custom': hasCustomResultSound }"
-                :title="resultSoundLabel"
-              >
-                {{ resultSoundLabel }}
-              </span>
-            </div>
-            <div class="sound-action-row">
-              <el-button size="small" type="primary" @click="triggerAudioFileSelect" :disabled="isDrawing">
-                <el-icon><Upload /></el-icon> 选择 MP3
-              </el-button>
-              <input
-                type="file"
-                ref="audioFileInputRef"
-                @change="handleAudioFileImport"
-                accept=".mp3,audio/mpeg"
-                style="display: none"
-              />
-              <el-button size="small" @click="previewResultSound" :disabled="isDrawing">
-                <el-icon><VideoPlay /></el-icon> 试听
-              </el-button>
-              <el-button size="small" @click="clearCustomResultSound" :disabled="isDrawing || !hasCustomResultSound">
-                <el-icon><Refresh /></el-icon> 合成音
-              </el-button>
-            </div>
-          </div>
-        </div>
-
-        <!-- 功能按钮 -->
-        <div class="settings-section">
-          <h3 class="section-title"><el-icon><Refresh /></el-icon> 数据重置与导出</h3>
-          <div class="action-grid-buttons">
-            <el-button type="success" class="action-btn-wide" @click="exportHistory" :disabled="historyRecords.length === 0">
-              <el-icon><Download /></el-icon> 导出历史记录
-            </el-button>
-            <el-button type="danger" class="action-btn-wide" @click="handleResetConfirm" :disabled="isDrawing" plain>
-              <el-icon><Refresh /></el-icon> 重置所有抽签数据
-            </el-button>
-          </div>
-        </div>
-
-        <!-- 历史记录 -->
-        <div class="settings-section flex-column-fill">
-          <h3 class="section-title"><el-icon><VideoPlay /></el-icon> 历史抽取记录</h3>
-          <div class="drawer-history-list">
-            <div v-if="historyRecords.length === 0" class="empty-history-placeholder">
-              暂无历史抽取记录
-            </div>
-            <div v-else class="history-list-cards">
-              <div v-for="record in historyRecords" :key="record.batch" class="history-record-card">
-                <div class="history-record-card-header">
-                  <span class="record-batch-badge">第 {{ record.batch }} 轮</span>
-                  <span class="record-count-badge">抽取 {{ record.names.length }} 人</span>
+            <div class="drawer-tab-panel">
+              <section class="settings-section prep-summary-section">
+                <div class="prep-summary">
+                  <span class="prep-status">{{ readinessStatus }}</span>
+                  <strong>{{ remainingCount }} / {{ nameList.length }}</strong>
+                  <span>剩余可抽人数</span>
                 </div>
-                <div class="history-record-card-names">
-                  <span v-for="(name, idx) in record.names" :key="idx" class="history-name-tag">
-                    {{ name }}
-                  </span>
+                <p class="prep-helper">主持现场只需要先完成名单和单批人数，音效与历史记录可稍后处理。</p>
+              </section>
+
+              <section class="settings-section">
+                <h3 class="section-title"><el-icon><Setting /></el-icon> 抽签基本设置</h3>
+                <div class="settings-form">
+                  <div class="form-row">
+                    <div class="form-item half">
+                      <label for="batch-size-input">单批抽取人数</label>
+                      <el-input-number
+                        id="batch-size-input"
+                        v-model="batchSize"
+                        :min="minPickCount"
+                        :max="maxPickCount"
+                        aria-label="单批抽取人数"
+                        class="w-full"
+                      />
+                    </div>
+                    <div class="form-item half">
+                      <label for="total-batches-input">总抽取轮数</label>
+                      <el-input-number
+                        id="total-batches-input"
+                        v-model="totalBatches"
+                        :min="1"
+                        :max="100"
+                        aria-label="总抽取轮数"
+                        class="w-full"
+                      />
+                    </div>
+                  </div>
                 </div>
-              </div>
+              </section>
+
+              <section class="settings-section">
+                <div class="section-header-flex">
+                  <h3 class="section-title"><el-icon><Aim /></el-icon> 名单管理</h3>
+                  <div class="header-action-group">
+                    <el-button type="primary" size="small" @click="triggerFileSelect" :disabled="isDrawing">
+                      <el-icon><Upload /></el-icon> 导入
+                    </el-button>
+                    <input
+                      type="file"
+                      ref="fileInputRef"
+                      @change="handleFileImport"
+                      accept=".txt"
+                      aria-label="选择 TXT 名单文件"
+                      style="display: none"
+                    />
+                    <el-button type="danger" size="small" @click="clearInput" :disabled="isDrawing" plain>
+                      <el-icon><Delete /></el-icon> 清空
+                    </el-button>
+                  </div>
+                </div>
+
+                <el-input
+                  v-model="nameInput"
+                  type="textarea"
+                  :rows="10"
+                  placeholder="请输入名单，每行一个名字。也可以点击导入选择 TXT 文件。"
+                  :disabled="isDrawing"
+                  class="name-list-textarea"
+                />
+
+                <div class="inline-stat-list" aria-label="名单统计">
+                  <span>名单 {{ nameList.length }} 人</span>
+                  <span>已抽 {{ allPickedNames.length }} 人</span>
+                  <span>剩余 {{ remainingCount }} 人</span>
+                </div>
+              </section>
             </div>
-          </div>
-        </div>
+          </el-tab-pane>
+
+          <el-tab-pane name="sound">
+            <template #label>
+              <span class="drawer-tab-label"><el-icon><VideoPlay /></el-icon> 音效</span>
+            </template>
+
+            <div class="drawer-tab-panel">
+              <section class="settings-section">
+                <h3 class="section-title"><el-icon><VideoPlay /></el-icon> 结束音效</h3>
+                <div class="sound-panel-box">
+                  <div class="sound-current-row">
+                    <span class="sound-label">当前音效</span>
+                    <span
+                      class="sound-name"
+                      :class="{ 'is-custom': hasCustomResultSound }"
+                      :title="resultSoundLabel"
+                    >
+                      {{ resultSoundLabel }}
+                    </span>
+                  </div>
+                  <div class="sound-action-row">
+                    <el-button size="small" type="primary" @click="triggerAudioFileSelect" :disabled="isDrawing">
+                      <el-icon><Upload /></el-icon> 选择音频
+                    </el-button>
+                    <input
+                      type="file"
+                      ref="audioFileInputRef"
+                      @change="handleAudioFileImport"
+                      accept=".mp3,.wav,audio/mpeg,audio/wav,audio/wave,audio/x-wav"
+                      aria-label="选择 MP3 或 WAV 结束音效文件"
+                      style="display: none"
+                    />
+                    <el-button size="small" @click="previewResultSound" :disabled="isDrawing">
+                      <el-icon><VideoPlay /></el-icon> 试听
+                    </el-button>
+                    <el-button size="small" @click="clearCustomResultSound" :disabled="isDrawing || !hasCustomResultSound">
+                      <el-icon><Refresh /></el-icon> 合成音
+                    </el-button>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </el-tab-pane>
+
+          <el-tab-pane name="records">
+            <template #label>
+              <span class="drawer-tab-label"><el-icon><Download /></el-icon> 记录</span>
+            </template>
+
+            <div class="drawer-tab-panel records-panel">
+              <section class="settings-section">
+                <h3 class="section-title"><el-icon><Refresh /></el-icon> 数据导出与重置</h3>
+                <div class="action-grid-buttons">
+                  <el-button type="success" class="action-btn-wide" @click="exportHistory" :disabled="historyRecords.length === 0">
+                    <el-icon><Download /></el-icon> 导出历史记录
+                  </el-button>
+                  <el-button type="danger" class="action-btn-wide" @click="handleResetConfirm" :disabled="isDrawing" plain>
+                    <el-icon><Refresh /></el-icon> 重置所有抽签数据
+                  </el-button>
+                </div>
+              </section>
+
+              <section class="settings-section flex-column-fill">
+                <h3 class="section-title"><el-icon><VideoPlay /></el-icon> 历史抽取记录</h3>
+                <div class="drawer-history-list">
+                  <div v-if="historyRecords.length === 0" class="empty-history-placeholder">
+                    暂无历史抽取记录
+                  </div>
+                  <div v-else class="history-list-cards">
+                    <div v-for="record in historyRecords" :key="record.batch" class="history-record-card">
+                      <div class="history-record-card-header">
+                        <span class="record-batch-badge">第 {{ record.batch }} 轮</span>
+                        <span class="record-count-badge">抽取 {{ record.names.length }} 人</span>
+                      </div>
+                      <div class="history-record-card-names">
+                        <span v-for="(name, idx) in record.names" :key="idx" class="history-name-tag">
+                          {{ name }}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </section>
+            </div>
+          </el-tab-pane>
+        </el-tabs>
         
         <!-- 页脚 -->
         <footer class="drawer-footer-copyright">
@@ -1036,6 +1192,25 @@ const appVersion = __APP_VERSION__
 <style scoped>
 /* 核心视口与字体设定 */
 .app-viewport {
+  --color-ink: oklch(23% 0.028 252);
+  --color-ink-soft: oklch(38% 0.026 252);
+  --color-muted: oklch(52% 0.026 252);
+  --color-surface: oklch(98% 0.012 248);
+  --color-surface-strong: oklch(99% 0.008 248);
+  --color-surface-warm: oklch(96% 0.018 248);
+  --color-line: oklch(73% 0.035 248 / 0.28);
+  --color-line-strong: oklch(62% 0.05 248 / 0.34);
+  --color-primary: oklch(56% 0.17 255);
+  --color-primary-deep: oklch(47% 0.16 255);
+  --color-primary-soft: oklch(94% 0.04 255);
+  --color-sky: oklch(63% 0.12 205);
+  --color-sky-deep: oklch(49% 0.1 205);
+  --color-sky-soft: oklch(95% 0.035 205);
+  --color-jade: oklch(56% 0.105 166);
+  --color-danger: oklch(48% 0.18 28);
+  --color-danger-soft: oklch(93% 0.052 28);
+  --shadow-soft: 0 20px 56px oklch(28% 0.05 252 / 0.12);
+  --shadow-panel: 0 10px 28px oklch(28% 0.04 252 / 0.08);
   width: 100vw;
   height: 100vh;
   margin: 0;
@@ -1044,10 +1219,38 @@ const appVersion = __APP_VERSION__
   overflow: hidden;
   position: relative;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-  color: #151a23;
+  color: var(--color-ink);
 }
 
-/* 浅色大屏背景：细网格负责科技感，避免影响姓名可读性。 */
+:deep(.el-button--primary) {
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-bg-color: oklch(61% 0.17 255);
+  --el-button-hover-border-color: oklch(61% 0.17 255);
+  --el-button-active-bg-color: var(--color-primary-deep);
+  --el-button-active-border-color: var(--color-primary-deep);
+}
+
+:deep(.el-button--success) {
+  --el-button-bg-color: var(--color-jade);
+  --el-button-border-color: var(--color-jade);
+  --el-button-hover-bg-color: oklch(59% 0.1 160);
+  --el-button-hover-border-color: oklch(59% 0.1 160);
+}
+
+:deep(.el-button--danger) {
+  --el-button-bg-color: var(--color-danger);
+  --el-button-border-color: var(--color-danger);
+  --el-button-hover-bg-color: oklch(53% 0.18 28);
+  --el-button-hover-border-color: oklch(53% 0.18 28);
+}
+
+:deep(.el-input-number__decrease),
+:deep(.el-input-number__increase) {
+  color: var(--color-ink-soft);
+}
+
+/* 浅色大屏背景：冷白底和弱网格保持清爽，不影响姓名可读性。 */
 .dynamic-background {
   position: absolute;
   top: 0;
@@ -1055,11 +1258,11 @@ const appVersion = __APP_VERSION__
   width: 100%;
   height: 100%;
   background:
-    linear-gradient(rgba(91, 124, 168, 0.08) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(91, 124, 168, 0.08) 1px, transparent 1px),
-    linear-gradient(120deg, rgba(20, 118, 240, 0.08), transparent 38%),
-    linear-gradient(300deg, rgba(0, 176, 148, 0.06), transparent 34%),
-    #f3f7fb;
+    linear-gradient(oklch(62% 0.035 248 / 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(62% 0.035 248 / 0.1) 1px, transparent 1px),
+    linear-gradient(120deg, oklch(72% 0.12 255 / 0.13), transparent 42%),
+    linear-gradient(300deg, oklch(70% 0.09 166 / 0.09), transparent 38%),
+    var(--color-surface);
   background-size: 44px 44px, 44px 44px, 100% 100%, 100% 100%, auto;
   overflow: hidden;
   z-index: 0;
@@ -1070,8 +1273,8 @@ const appVersion = __APP_VERSION__
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(90deg, transparent 0%, rgba(38, 119, 240, 0.12) 48%, transparent 52%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.58), transparent 28%, rgba(255, 255, 255, 0.68));
+    linear-gradient(90deg, transparent 0%, oklch(72% 0.12 255 / 0.16) 48%, transparent 52%),
+    linear-gradient(180deg, oklch(99% 0.008 248 / 0.72), transparent 30%, oklch(98% 0.012 248 / 0.78));
   opacity: 0.72;
   pointer-events: none;
 }
@@ -1090,7 +1293,7 @@ const appVersion = __APP_VERSION__
   height: 2px;
   top: 72px;
   left: 0;
-  background: linear-gradient(90deg, transparent, rgba(20, 118, 240, 0.45), transparent);
+  background: linear-gradient(90deg, transparent, oklch(67% 0.14 255 / 0.52), transparent);
 }
 
 .glow-2 {
@@ -1098,7 +1301,7 @@ const appVersion = __APP_VERSION__
   height: 34%;
   bottom: 0;
   right: 0;
-  background: linear-gradient(180deg, transparent, rgba(229, 236, 246, 0.84));
+  background: linear-gradient(180deg, transparent, oklch(94% 0.026 248 / 0.86));
 }
 
 .glow-3 {
@@ -1106,7 +1309,7 @@ const appVersion = __APP_VERSION__
   height: 100%;
   top: 0;
   right: 7%;
-  background: linear-gradient(90deg, transparent, rgba(0, 176, 148, 0.08), transparent);
+  background: linear-gradient(90deg, transparent, oklch(70% 0.09 166 / 0.08), transparent);
 }
 
 @keyframes floatAmbient {
@@ -1126,7 +1329,7 @@ const appVersion = __APP_VERSION__
   height: 100%;
   display: flex;
   flex-direction: column;
-  padding: 12px 18px 10px 18px;
+  padding: 16px 20px 12px;
   box-sizing: border-box;
 }
 
@@ -1149,18 +1352,21 @@ const appVersion = __APP_VERSION__
   justify-content: center;
 }
 
-/* 汇总信息卡片置于正中间 */
+/* 首次进入用准备台承接导入、人数、开始三步。 */
 .center-dashboard-card {
-  background: rgba(249, 252, 255, 0.9);
-  border: 1px solid rgba(112, 141, 178, 0.22);
-  box-shadow: 0 24px 62px rgba(34, 63, 103, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.92);
-  border-radius: 16px;
-  padding: 38px 46px;
-  text-align: left;
-  display: flex;
-  flex-direction: column;
-  width: min(620px, calc(100vw - 48px));
+  width: min(860px, calc(100vw - 48px));
   box-sizing: border-box;
+  display: grid;
+  grid-template-columns: minmax(0, 1.1fr) minmax(260px, 0.9fr);
+  gap: 32px;
+  align-items: stretch;
+  padding: 42px;
+  border-radius: 12px;
+  border: 1px solid var(--color-line);
+  background:
+    linear-gradient(135deg, oklch(99% 0.01 248 / 0.96), oklch(96% 0.022 248 / 0.9)),
+    var(--color-surface-strong);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 oklch(100% 0 0 / 0.72);
   animation: zoomFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -1175,88 +1381,166 @@ const appVersion = __APP_VERSION__
   }
 }
 
-.dashboard-header {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 22px;
-}
-
-.dashboard-icon {
-  font-size: 24px;
-  color: #1476f0;
-}
-
-.standby-copy {
+.standby-main {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  justify-content: center;
+  min-width: 0;
+}
+
+.standby-kicker {
+  width: fit-content;
+  margin-bottom: 14px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+  font-size: 12px;
+  line-height: 1;
+  font-weight: 800;
 }
 
 .dashboard-title {
-  font-size: 24px;
-  font-weight: 800;
-  color: #151a23;
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.12;
+  font-weight: 900;
+  color: var(--color-ink);
   letter-spacing: 0;
 }
 
 .dashboard-subtitle {
-  font-size: 14px;
-  line-height: 1.4;
-  color: #667489;
+  max-width: 36rem;
+  margin: 12px 0 0;
+  font-size: 15px;
+  line-height: 1.6;
+  color: var(--color-muted);
   font-weight: 600;
 }
 
-.dashboard-divider {
-  width: 100%;
-  height: 1px;
-  background: rgba(82, 112, 151, 0.14);
-  margin-bottom: 22px;
-}
-
-.dashboard-stats-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px 24px;
-  width: 100%;
-}
-
-.stat-item {
+.standby-actions {
   display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.standby-primary-btn,
+.standby-secondary-btn {
+  height: 42px !important;
+  border-radius: 8px !important;
+  padding: 0 18px !important;
+  font-weight: 800 !important;
+}
+
+.standby-primary-btn {
+  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-deep)) !important;
+  border: none !important;
+  box-shadow: 0 12px 26px oklch(47% 0.16 255 / 0.22) !important;
+}
+
+.standby-secondary-btn {
+  background: oklch(99% 0.008 82 / 0.72) !important;
+  border: 1px solid var(--color-line) !important;
+  color: var(--color-ink-soft) !important;
+}
+
+.setup-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 4px 0;
+}
+
+.setup-step {
+  display: grid;
+  grid-template-columns: 32px 1fr;
+  gap: 12px;
   align-items: center;
-  font-size: 16px;
-  font-weight: 600;
-  color: #667489;
-  border-bottom: 1px solid rgba(82, 112, 151, 0.1);
-  padding-bottom: 6px;
+  min-height: 54px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--color-line);
+  background: oklch(99% 0.008 82 / 0.5);
 }
 
-.stat-item.full-width {
-  grid-column: span 2;
-  border-bottom: none;
-  padding-bottom: 0;
+.setup-step.is-current {
+  border-color: oklch(63% 0.12 205 / 0.42);
+  background: var(--color-sky-soft);
 }
 
-.stat-item .stat-label {
-  color: #667489;
+.setup-step.is-done {
+  border-color: oklch(54% 0.095 160 / 0.36);
+  background: oklch(94% 0.048 154 / 0.58);
 }
 
-.stat-item .stat-val {
-  color: #151a23;
-  font-weight: 700;
+.setup-step-index {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--color-surface-warm);
+  color: var(--color-ink);
+  font-size: 13px;
+  font-weight: 900;
 }
 
-.stat-item .stat-val.highlight {
-  color: #151a23;
+.setup-step.is-done .setup-step-index {
+  background: var(--color-jade);
+  color: var(--color-surface-strong);
 }
 
-.stat-item .stat-val.highlight-blue {
-  color: #1476f0;
+.setup-step-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
 }
 
-.stat-item .stat-val.highlight-green {
-  color: #009c7f;
+.setup-step-label {
+  font-size: 14px;
+  font-weight: 850;
+  color: var(--color-ink);
+}
+
+.setup-step-detail {
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--color-muted);
+  font-weight: 650;
+}
+
+.standby-metrics {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-line);
+}
+
+.standby-metrics div {
+  padding: 14px 16px;
+  background: oklch(99% 0.008 82 / 0.62);
+}
+
+.standby-metrics dt {
+  margin: 0 0 5px;
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.standby-metrics dd {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 18px;
+  font-weight: 900;
 }
 
 .grid-animation-wrapper {
@@ -1286,9 +1570,9 @@ const appVersion = __APP_VERSION__
   justify-content: center;
   border-radius: 8px;
   background:
-    linear-gradient(180deg, rgba(253, 254, 255, 0.98), rgba(243, 248, 253, 0.94));
-  border: 1px solid rgba(97, 128, 168, 0.2);
-  box-shadow: 0 10px 28px rgba(32, 65, 105, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.94);
+    linear-gradient(180deg, oklch(99% 0.008 248 / 0.98), oklch(96% 0.02 248 / 0.94));
+  border: 1px solid var(--color-line);
+  box-shadow: var(--shadow-panel), inset 0 1px 0 oklch(100% 0 0 / 0.72);
   position: relative;
   overflow: hidden;
   box-sizing: border-box;
@@ -1299,7 +1583,7 @@ const appVersion = __APP_VERSION__
   content: '';
   position: absolute;
   inset: 7px;
-  border: 1px solid rgba(20, 118, 240, 0.1);
+  border: 1px solid oklch(72% 0.12 255 / 0.16);
   border-radius: 5px;
   pointer-events: none;
 }
@@ -1308,30 +1592,30 @@ const appVersion = __APP_VERSION__
 .name-card.is-rolling {
   transform: scale(0.985);
   background:
-    linear-gradient(180deg, rgba(246, 251, 255, 0.98), rgba(236, 246, 255, 0.96));
-  border-color: rgba(20, 118, 240, 0.48);
-  box-shadow: 0 0 0 1px rgba(20, 118, 240, 0.12), 0 14px 32px rgba(20, 118, 240, 0.13);
+    linear-gradient(180deg, oklch(99% 0.012 248 / 0.98), oklch(94% 0.04 255 / 0.96));
+  border-color: oklch(61% 0.17 255 / 0.54);
+  box-shadow: 0 0 0 1px oklch(72% 0.12 255 / 0.2), 0 14px 32px oklch(47% 0.16 255 / 0.14);
 }
 
 .name-card.is-rolling .name-text {
   filter: blur(0.3px);
   opacity: 0.9;
-  color: #1476f0;
+  color: var(--color-primary-deep);
 }
 
 /* 揭晓锁定状态 */
 .name-card.is-revealed {
   animation: revealSpring 0.42s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(246, 250, 254, 0.96));
-  border-color: rgba(0, 156, 127, 0.48);
-  box-shadow: 0 0 0 1px rgba(0, 156, 127, 0.1), 0 14px 34px rgba(25, 63, 103, 0.11), inset 0 1px 0 rgba(255, 255, 255, 0.95);
+    linear-gradient(180deg, oklch(99% 0.012 248 / 0.98), oklch(95% 0.04 166 / 0.92));
+  border-color: oklch(56% 0.105 166 / 0.55);
+  box-shadow: 0 0 0 1px oklch(56% 0.105 166 / 0.2), 0 16px 36px oklch(38% 0.06 180 / 0.12), inset 0 1px 0 oklch(100% 0 0 / 0.76);
 }
 
 .name-card.is-revealed .name-text {
-  color: #111723;
+  color: var(--color-ink);
   font-weight: 900;
-  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+  text-shadow: 0 1px 0 oklch(100% 0 0 / 0.64);
 }
 
 /* 顶部状态线用于提示揭晓完成，不抢人名。 */
@@ -1342,7 +1626,7 @@ const appVersion = __APP_VERSION__
   left: 0;
   width: 100%;
   height: 4px;
-  background: linear-gradient(90deg, #1476f0, #00a889);
+  background: linear-gradient(90deg, var(--color-primary), var(--color-sky), var(--color-jade));
   opacity: 0.92;
 }
 
@@ -1378,7 +1662,7 @@ const appVersion = __APP_VERSION__
   width: 100%;
   height: 100%;
   pointer-events: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.46) 0%, transparent 54%);
+  background: linear-gradient(135deg, oklch(100% 0 0 / 0.48) 0%, transparent 54%);
   z-index: 1;
 }
 
@@ -1390,9 +1674,9 @@ const appVersion = __APP_VERSION__
   justify-content: space-between;
   padding: 0 16px;
   flex-shrink: 0;
-  background: rgba(248, 251, 255, 0.92);
-  border: 1px solid rgba(97, 128, 168, 0.18);
-  box-shadow: 0 10px 28px rgba(32, 65, 105, 0.06), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  background: oklch(99% 0.008 82 / 0.9);
+  border: 1px solid var(--color-line);
+  box-shadow: 0 10px 28px oklch(28% 0.04 48 / 0.08), inset 0 1px 0 oklch(100% 0 0 / 0.72);
   border-radius: 8px;
   z-index: 10;
   box-sizing: border-box;
@@ -1415,9 +1699,9 @@ const appVersion = __APP_VERSION__
   height: 30px !important;
   padding: 0 12px !important;
   font-size: 13px !important;
-  border: 1px solid rgba(97, 128, 168, 0.18) !important;
-  background: rgba(255, 255, 255, 0.86) !important;
-  color: #151a23 !important;
+  border: 1px solid var(--color-line) !important;
+  background: oklch(99% 0.008 82 / 0.82) !important;
+  color: var(--color-ink) !important;
   box-shadow: none !important;
   transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1) !important;
   display: inline-flex;
@@ -1426,42 +1710,42 @@ const appVersion = __APP_VERSION__
 }
 
 .icon-pill-btn:hover {
-  background: rgba(255, 255, 255, 0.98) !important;
+  background: var(--color-surface-strong) !important;
   transform: translateY(-1px);
 }
 
 .icon-pill-btn.start-btn {
-  background: linear-gradient(180deg, #2184ff, #1167de) !important;
-  color: white !important;
+  background: linear-gradient(180deg, var(--color-primary), var(--color-primary-deep)) !important;
+  color: var(--color-surface-strong) !important;
   border: none !important;
-  box-shadow: 0 6px 16px rgba(20, 118, 240, 0.18) !important;
+  box-shadow: 0 7px 18px oklch(47% 0.16 255 / 0.2) !important;
 }
 
 .icon-pill-btn.start-btn:hover {
-  box-shadow: 0 8px 20px rgba(20, 118, 240, 0.24) !important;
+  box-shadow: 0 9px 22px oklch(47% 0.16 255 / 0.26) !important;
 }
 
 .icon-pill-btn.stop-btn {
-  background: linear-gradient(180deg, #ff4d43, #d62d23) !important;
-  color: white !important;
+  background: linear-gradient(180deg, var(--color-danger), oklch(39% 0.16 27)) !important;
+  color: var(--color-surface-strong) !important;
   border: none !important;
-  box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15) !important;
+  box-shadow: 0 4px 10px oklch(39% 0.16 27 / 0.18) !important;
   animation: pulseGlowBtn 1.5s infinite;
 }
 
 @keyframes pulseGlowBtn {
-  0% { transform: scale(1); box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15); }
-  50% { transform: scale(1.02); box-shadow: 0 5px 12px rgba(255, 59, 48, 0.25); }
-  100% { transform: scale(1); box-shadow: 0 3px 8px rgba(255, 59, 48, 0.15); }
+  0% { transform: scale(1); box-shadow: 0 4px 10px oklch(39% 0.16 27 / 0.18); }
+  50% { transform: scale(1.02); box-shadow: 0 7px 16px oklch(39% 0.16 27 / 0.28); }
+  100% { transform: scale(1); box-shadow: 0 4px 10px oklch(39% 0.16 27 / 0.18); }
 }
 
 .icon-pill-btn.danger {
-  color: #d62d23 !important;
+  color: var(--color-danger) !important;
 }
 
 .icon-pill-btn.danger:hover {
-  background: rgba(255, 59, 48, 0.05) !important;
-  border-color: rgba(255, 59, 48, 0.15) !important;
+  background: var(--color-danger-soft) !important;
+  border-color: oklch(48% 0.18 28 / 0.2) !important;
 }
 
 .icon-pill-btn:disabled {
@@ -1469,9 +1753,9 @@ const appVersion = __APP_VERSION__
   cursor: not-allowed;
   transform: none !important;
   box-shadow: none !important;
-  background: rgba(0, 0, 0, 0.04) !important;
-  color: rgba(0, 0, 0, 0.25) !important;
-  border: 1px solid rgba(0, 0, 0, 0.03) !important;
+  background: oklch(88% 0.012 248 / 0.56) !important;
+  color: oklch(50% 0.018 58 / 0.52) !important;
+  border: 1px solid oklch(58% 0.018 58 / 0.12) !important;
 }
 
 .pulse-icon {
@@ -1503,20 +1787,20 @@ const appVersion = __APP_VERSION__
   gap: 10px; /* 间距缩减 */
   font-size: 13px;
   font-weight: 700;
-  color: #667489;
+  color: var(--color-muted);
 }
 
 .stat-capsule {
-  color: #667489;
+  color: var(--color-muted);
 }
 
 .stat-highlight {
-  color: #253040;
+  color: var(--color-ink);
   font-weight: 800;
 }
 
 .stat-divider {
-  color: rgba(0, 0, 0, 0.1);
+  color: oklch(43% 0.03 48 / 0.22);
   font-size: 14px;
 }
 
@@ -1536,43 +1820,187 @@ const appVersion = __APP_VERSION__
 .bottom-copyright {
   font-size: 12px;
   font-weight: 600;
-  color: rgba(37, 48, 64, 0.42);
+  color: oklch(38% 0.032 45 / 0.5);
   letter-spacing: 0;
   white-space: nowrap;
 }
 
 /* 右侧高级设置面板抽屉 */
 :deep(.tech-drawer) {
-  background-color: #fbfbfd !important;
-  backdrop-filter: blur(20px);
+  background-color: var(--color-surface) !important;
 }
 
 :deep(.el-drawer__header) {
-  margin-bottom: 16px;
-  padding: 24px 24px 0 24px;
+  margin-bottom: 0;
+  padding: 24px 24px 14px;
+  border-bottom: 1px solid var(--color-line);
 }
 
 :deep(.el-drawer__title) {
   font-size: 20px;
   font-weight: 700;
-  color: #1d1d1f;
+  color: var(--color-ink);
 }
 
 :deep(.el-drawer__body) {
-  padding: 0 24px 24px 24px;
+  padding: 0 24px 20px;
+}
+
+.drawer-custom-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.drawer-eyebrow {
+  margin: 0 0 4px;
+  color: var(--color-primary-deep);
+  font-size: 12px;
+  font-weight: 850;
+}
+
+.drawer-custom-header h2 {
+  margin: 0;
+  color: var(--color-ink);
+  font-size: 22px;
+  line-height: 1.2;
+  font-weight: 900;
+}
+
+.drawer-close-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-surface-strong);
+  color: var(--color-ink-soft);
+  cursor: pointer;
+  transition: background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+
+.drawer-close-btn:hover {
+  background: var(--color-primary-soft);
+  color: var(--color-primary-deep);
+  transform: translateY(-1px);
 }
 
 .drawer-layout-container {
   height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 16px;
+}
+
+.drawer-tabs {
+  min-height: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+}
+
+.drawer-tabs :deep(.el-tabs__header) {
+  order: -1;
+  margin: 0 0 18px;
+}
+
+.drawer-tabs :deep(.el-tabs__nav-wrap::after) {
+  background-color: var(--color-line);
+}
+
+.drawer-tabs :deep(.el-tabs__active-bar) {
+  background-color: var(--color-primary);
+}
+
+.drawer-tabs :deep(.el-tabs__item) {
+  color: var(--color-muted);
+  font-weight: 750;
+}
+
+.drawer-tabs :deep(.el-tabs__item.is-active),
+.drawer-tabs :deep(.el-tabs__item:hover) {
+  color: var(--color-primary-deep);
+}
+
+.drawer-tabs :deep(.el-tabs__content) {
+  order: 0;
+  flex: 1;
+  min-height: 0;
+}
+
+.drawer-tabs :deep(.el-tab-pane) {
+  height: 100%;
+}
+
+.drawer-tab-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.drawer-tab-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  height: 100%;
+  min-height: 0;
+}
+
+.records-panel {
+  min-height: 0;
 }
 
 .settings-section {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.prep-summary-section {
+  gap: 10px;
+}
+
+.prep-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 6px 16px;
+  align-items: end;
+  padding: 16px;
+  border: 1px solid oklch(63% 0.12 205 / 0.3);
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--color-sky-soft), oklch(99% 0.01 248 / 0.82));
+}
+
+.prep-summary strong {
+  grid-row: span 2;
+  color: var(--color-ink);
+  font-size: 30px;
+  line-height: 1;
+  font-weight: 950;
+}
+
+.prep-summary span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.prep-summary .prep-status {
+  color: var(--color-primary-deep);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.prep-helper {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 13px;
+  line-height: 1.55;
+  font-weight: 650;
 }
 
 .settings-section.flex-column-fill {
@@ -1583,7 +2011,7 @@ const appVersion = __APP_VERSION__
 .section-title {
   font-size: 15px;
   font-weight: 700;
-  color: #86868b;
+  color: var(--color-ink-soft);
   margin: 0;
   display: flex;
   align-items: center;
@@ -1617,7 +2045,7 @@ const appVersion = __APP_VERSION__
 .form-item label {
   font-size: 13px;
   font-weight: 600;
-  color: #1d1d1f;
+  color: var(--color-ink);
 }
 
 .form-row {
@@ -1630,72 +2058,42 @@ const appVersion = __APP_VERSION__
 }
 
 .name-list-textarea :deep(.el-textarea__inner) {
-  border-radius: 12px;
+  border-radius: 10px;
   font-family: monospace;
   font-size: 13px;
-  border-color: rgba(0, 0, 0, 0.08);
-  background: #ffffff;
+  border-color: var(--color-line);
+  background: var(--color-surface-strong);
   padding: 12px;
   transition: all 0.3s;
 }
 
 .name-list-textarea :deep(.el-textarea__inner:focus) {
-  box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
-  border-color: #007aff;
+  box-shadow: 0 0 0 3px oklch(56% 0.17 255 / 0.16);
+  border-color: var(--color-primary);
 }
 
-/* 抽屉内统计卡片 */
-.stats-panel-box {
-  background: rgba(0, 0, 0, 0.02);
-  border: 1px solid rgba(0, 0, 0, 0.03);
-  border-radius: 14px;
-  padding: 12px 16px;
+.inline-stat-list {
   display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-
-.stat-row-item {
-  display: flex;
-  justify-content: space-between;
+  flex-wrap: wrap;
   align-items: center;
+  gap: 8px;
+}
+
+.inline-stat-list span {
+  padding: 5px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface-warm);
   font-size: 13px;
-  font-weight: 600;
-  color: #515154;
-}
-
-.stats-panel-box .stat-row-item:last-child {
-  border-top: 1px solid rgba(0, 0, 0, 0.03);
-  padding-top: 10px;
-}
-
-.stat-value-badge {
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  padding: 4px 10px;
-  border-radius: 8px;
-  font-size: 12px;
-  color: #1d1d1f;
-  font-weight: 700;
-}
-
-.stat-value-badge.text-blue {
-  color: #007aff;
-  background: rgba(0, 122, 255, 0.05);
-  border-color: rgba(0, 122, 255, 0.1);
-}
-
-.stat-value-badge.text-green {
-  color: #34c759;
-  background: rgba(52, 199, 89, 0.05);
-  border-color: rgba(52, 199, 89, 0.1);
+  font-weight: 750;
+  color: var(--color-ink-soft);
 }
 
 /* 结束音效设置 */
 .sound-panel-box {
-  background: rgba(0, 0, 0, 0.02);
-  border: 1px solid rgba(0, 0, 0, 0.03);
-  border-radius: 14px;
+  background: var(--color-surface-warm);
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
   padding: 12px 16px;
   display: flex;
   flex-direction: column;
@@ -1712,7 +2110,7 @@ const appVersion = __APP_VERSION__
 .sound-label {
   font-size: 13px;
   font-weight: 600;
-  color: #515154;
+  color: var(--color-ink-soft);
   flex-shrink: 0;
 }
 
@@ -1722,9 +2120,9 @@ const appVersion = __APP_VERSION__
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  background: #ffffff;
-  border: 1px solid rgba(0, 0, 0, 0.04);
-  color: #1d1d1f;
+  background: var(--color-surface-strong);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink);
   padding: 4px 10px;
   border-radius: 8px;
   font-size: 12px;
@@ -1732,9 +2130,9 @@ const appVersion = __APP_VERSION__
 }
 
 .sound-name.is-custom {
-  color: #007aff;
-  background: rgba(0, 122, 255, 0.05);
-  border-color: rgba(0, 122, 255, 0.1);
+  color: var(--color-primary-deep);
+  background: var(--color-primary-soft);
+  border-color: oklch(56% 0.17 255 / 0.18);
 }
 
 .sound-action-row {
@@ -1761,16 +2159,16 @@ const appVersion = __APP_VERSION__
 .drawer-history-list {
   flex: 1;
   min-height: 0;
-  border: 1px solid rgba(0, 0, 0, 0.05);
-  background: #ffffff;
-  border-radius: 14px;
+  border: 1px solid var(--color-line);
+  background: var(--color-surface-strong);
+  border-radius: 10px;
   overflow-y: auto;
   padding: 14px;
 }
 
 .empty-history-placeholder {
   text-align: center;
-  color: #86868b;
+  color: var(--color-muted);
   font-size: 13px;
   padding: 40px 0;
 }
@@ -1782,7 +2180,7 @@ const appVersion = __APP_VERSION__
 }
 
 .history-record-card {
-  border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+  border-bottom: 1px solid var(--color-line);
   padding-bottom: 12px;
 }
 
@@ -1801,15 +2199,15 @@ const appVersion = __APP_VERSION__
 .record-batch-badge {
   font-size: 12px;
   font-weight: 700;
-  background: #1d1d1f;
-  color: #ffffff;
+  background: var(--color-ink);
+  color: var(--color-surface-strong);
   padding: 2px 8px;
   border-radius: 6px;
 }
 
 .record-count-badge {
   font-size: 11px;
-  color: #86868b;
+  color: var(--color-muted);
   font-weight: 600;
 }
 
@@ -1821,9 +2219,9 @@ const appVersion = __APP_VERSION__
 }
 
 .history-name-tag {
-  background: #f5f5f7;
-  border: 1px solid rgba(0, 0, 0, 0.03);
-  color: #515154;
+  background: var(--color-surface-warm);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink-soft);
   padding: 2px 8px;
   border-radius: 6px;
   font-size: 12px;
@@ -1833,13 +2231,108 @@ const appVersion = __APP_VERSION__
 .drawer-footer-copyright {
   text-align: center;
   font-size: 11px;
-  color: #86868b;
-  border-top: 1px solid rgba(0, 0, 0, 0.05);
+  color: var(--color-muted);
+  border-top: 1px solid var(--color-line);
   padding-top: 16px;
 }
 
 /* 针对 Element Plus 组件的部分覆盖适配 */
 .w-full {
   width: 100%;
+}
+
+@media (max-width: 980px) {
+  .center-dashboard-card {
+    width: min(680px, calc(100vw - 36px));
+    grid-template-columns: 1fr;
+    gap: 24px;
+    padding: 32px;
+  }
+
+  .standby-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .app-bottom-bar {
+    height: auto;
+    min-height: 42px;
+    flex-wrap: wrap;
+    gap: 8px 12px;
+    padding: 8px 12px;
+  }
+
+  .bottom-bar-left,
+  .bottom-bar-center {
+    flex: 1 1 auto;
+  }
+
+  .bottom-bar-right {
+    display: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .main-layout {
+    padding: 10px;
+  }
+
+  .center-dashboard-card {
+    width: 100%;
+    max-height: calc(100vh - 126px);
+    overflow-y: auto;
+    padding: 18px;
+    gap: 16px;
+  }
+
+  .dashboard-title {
+    font-size: 26px;
+  }
+
+  .dashboard-subtitle {
+    margin-top: 8px;
+    font-size: 13px;
+  }
+
+  .standby-actions {
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 18px;
+  }
+
+  .standby-primary-btn,
+  .standby-secondary-btn {
+    width: 100%;
+    height: 38px !important;
+  }
+
+  .setup-progress {
+    gap: 8px;
+  }
+
+  .setup-step {
+    min-height: 44px;
+    padding: 8px 10px;
+  }
+
+  .standby-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .standby-metrics div {
+    padding: 10px 12px;
+  }
+
+  .bottom-stats-container {
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 6px 8px;
+    font-size: 12px;
+  }
+
+  .form-row,
+  .action-grid-buttons {
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
 }
 </style>
