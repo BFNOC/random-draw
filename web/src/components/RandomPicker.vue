@@ -53,12 +53,21 @@ const drawerVisible = ref(false)
 // 计时器引用
 let drawingTimer = null
 let revealTimer = null
+let audioContext = null
+let customAudioObjectUrl = ''
 // 文件输入引用
 const fileInputRef = ref(null)
+// 结束音效文件输入引用
+const audioFileInputRef = ref(null)
 // 历史记录
 const historyRecords = ref([])
 // 最终录入的幸运儿名单
 const finalPickedNames = ref([])
+// 自定义 MP3 结束音效
+const customAudioName = ref('')
+const customAudioElement = ref(null)
+const hasCustomResultSound = computed(() => Boolean(customAudioElement.value))
+const resultSoundLabel = computed(() => customAudioName.value || '合成音效')
 
 // 动态计算网格的样式
 const gridStyle = computed(() => {
@@ -187,6 +196,256 @@ const adjustPickCount = () => {
   }
 }
 
+const resetAudioFileInput = () => {
+  if (audioFileInputRef.value) {
+    audioFileInputRef.value.value = ''
+  }
+}
+
+const clearCustomResultSound = (showMessage = true) => {
+  if (customAudioElement.value) {
+    customAudioElement.value.pause()
+    customAudioElement.value.removeAttribute('src')
+    customAudioElement.value.load()
+  }
+
+  customAudioElement.value = null
+  customAudioName.value = ''
+
+  if (customAudioObjectUrl) {
+    URL.revokeObjectURL(customAudioObjectUrl)
+    customAudioObjectUrl = ''
+  }
+
+  resetAudioFileInput()
+
+  if (showMessage) {
+    ElMessage.success('已恢复合成音效')
+  }
+}
+
+const isMp3File = (file) => {
+  return file.type === 'audio/mpeg' || file.type === 'audio/mp3' || file.name.toLowerCase().endsWith('.mp3')
+}
+
+// 通过浏览器解码检查文件是否真能播放，避免只看扩展名导致现场无声。
+const createValidatedAudioElement = (objectUrl) => {
+  return new Promise((resolve, reject) => {
+    const audio = new Audio()
+    let settled = false
+
+    const finish = (callback) => {
+      if (settled) return
+      settled = true
+      window.clearTimeout(timer)
+      audio.onloadedmetadata = null
+      audio.onerror = null
+      callback()
+    }
+
+    const timer = window.setTimeout(() => {
+      finish(() => reject(new Error('MP3 音效加载超时')))
+    }, 5000)
+
+    audio.preload = 'auto'
+    audio.onloadedmetadata = () => {
+      finish(() => resolve(audio))
+    }
+    audio.onerror = () => {
+      finish(() => reject(new Error('MP3 音效无法播放')))
+    }
+    audio.src = objectUrl
+    audio.load()
+  })
+}
+
+const triggerAudioFileSelect = () => {
+  audioFileInputRef.value?.click()
+}
+
+const handleAudioFileImport = async (event) => {
+  const file = event.target.files?.[0]
+  if (!file) return
+
+  if (!isMp3File(file)) {
+    ElMessage.error('请选择 MP3 音频文件')
+    clearCustomResultSound(false)
+    resetAudioFileInput()
+    return
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+
+  try {
+    const audio = await createValidatedAudioElement(objectUrl)
+    clearCustomResultSound(false)
+    customAudioObjectUrl = objectUrl
+    customAudioElement.value = audio
+    customAudioName.value = file.name
+    ElMessage.success('已启用 MP3 结束音效')
+  } catch (error) {
+    URL.revokeObjectURL(objectUrl)
+    clearCustomResultSound(false)
+    console.warn('MP3 结束音效加载失败', error)
+    ElMessage.error('MP3 文件无法播放，已使用合成音效')
+  } finally {
+    resetAudioFileInput()
+  }
+}
+
+const getAudioContext = () => {
+  if (typeof window === 'undefined') return null
+
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext
+  if (!AudioContextClass) return null
+
+  if (!audioContext || audioContext.state === 'closed') {
+    audioContext = new AudioContextClass()
+  }
+
+  return audioContext
+}
+
+const prepareSynthResultSound = async () => {
+  const context = getAudioContext()
+  if (!context) return
+
+  try {
+    if (context.state === 'suspended') {
+      await context.resume()
+    }
+  } catch (error) {
+    console.warn('抽签音效初始化失败', error)
+  }
+}
+
+const prepareCustomResultSound = async () => {
+  const audio = customAudioElement.value
+  if (!audio) return
+
+  const previousVolume = audio.volume
+  try {
+    audio.pause()
+    audio.currentTime = 0
+    audio.volume = 0
+    await audio.play()
+    audio.pause()
+    audio.currentTime = 0
+  } catch (error) {
+    console.warn('MP3 结束音效初始化失败', error)
+  } finally {
+    audio.volume = previousVolume
+  }
+}
+
+// 浏览器通常要求音频先由用户操作解锁，开始或停止抽签时先恢复音频资源。
+const prepareResultSound = async () => {
+  if (hasCustomResultSound.value) {
+    await prepareCustomResultSound()
+  }
+
+  await prepareSynthResultSound()
+}
+
+const playCustomResultSound = async () => {
+  const audio = customAudioElement.value
+  if (!audio) return false
+
+  try {
+    audio.pause()
+    audio.currentTime = 0
+    audio.muted = false
+    await audio.play()
+    return true
+  } catch (error) {
+    console.warn('播放 MP3 结束音效失败', error)
+    return false
+  }
+}
+
+// 结束提示音使用 Web Audio 合成，避免额外引入音频文件和加载失败问题。
+const playSynthResultSound = async () => {
+  const context = getAudioContext()
+  if (!context) return
+
+  try {
+    if (context.state === 'suspended') {
+      await context.resume()
+    }
+
+    const now = context.currentTime
+    const masterGain = context.createGain()
+    const notes = [
+      { frequency: 523.25, start: 0, duration: 0.18, volume: 0.28 },
+      { frequency: 659.25, start: 0.12, duration: 0.2, volume: 0.3 },
+      { frequency: 783.99, start: 0.24, duration: 0.22, volume: 0.32 },
+      { frequency: 1046.5, start: 0.42, duration: 0.48, volume: 0.34 }
+    ]
+
+    masterGain.gain.setValueAtTime(0.0001, now)
+    masterGain.gain.exponentialRampToValueAtTime(0.42, now + 0.03)
+    masterGain.gain.exponentialRampToValueAtTime(0.0001, now + 1.15)
+    masterGain.connect(context.destination)
+
+    notes.forEach((note) => {
+      const oscillator = context.createOscillator()
+      const noteGain = context.createGain()
+      const startAt = now + note.start
+      const stopAt = startAt + note.duration
+
+      oscillator.type = 'triangle'
+      oscillator.frequency.setValueAtTime(note.frequency, startAt)
+      noteGain.gain.setValueAtTime(0.0001, startAt)
+      noteGain.gain.exponentialRampToValueAtTime(note.volume, startAt + 0.02)
+      noteGain.gain.exponentialRampToValueAtTime(0.0001, stopAt)
+
+      oscillator.connect(noteGain)
+      noteGain.connect(masterGain)
+      oscillator.start(startAt)
+      oscillator.stop(stopAt + 0.04)
+    })
+
+    const shimmer = context.createOscillator()
+    const shimmerGain = context.createGain()
+    shimmer.type = 'sine'
+    shimmer.frequency.setValueAtTime(1567.98, now + 0.52)
+    shimmer.frequency.exponentialRampToValueAtTime(2093, now + 0.92)
+    shimmerGain.gain.setValueAtTime(0.0001, now + 0.52)
+    shimmerGain.gain.exponentialRampToValueAtTime(0.18, now + 0.58)
+    shimmerGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.98)
+    shimmer.connect(shimmerGain)
+    shimmerGain.connect(masterGain)
+    shimmer.start(now + 0.52)
+    shimmer.stop(now + 1.02)
+
+    window.setTimeout(() => {
+      try {
+        masterGain.disconnect()
+      } catch (error) {
+        console.warn('抽签音效资源释放失败', error)
+      }
+    }, 1300)
+  } catch (error) {
+    console.warn('播放抽签完成音效失败', error)
+  }
+}
+
+const playDrawCompleteSound = async () => {
+  const playedCustomSound = await playCustomResultSound()
+  if (playedCustomSound) return
+
+  if (hasCustomResultSound.value) {
+    ElMessage.warning('MP3 音效播放失败，已使用合成音效')
+  }
+
+  await playSynthResultSound()
+}
+
+const previewResultSound = async () => {
+  await prepareResultSound()
+  await playDrawCompleteSound()
+}
+
 // 触发文件选择
 const triggerFileSelect = () => {
   fileInputRef.value.click()
@@ -245,6 +504,8 @@ const startDraw = () => {
     ElMessage.warning(`剩余可抽人数为 ${remainingNames.length} 人，请在设置中调整单批人数`)
     return
   }
+
+  prepareResultSound()
   
   isDrawing.value = true
   isRevealing.value = false
@@ -271,6 +532,8 @@ const startDraw = () => {
 // 停止抽取 (逐个揭晓动画)
 const stopDraw = () => {
   if (!isDrawing.value || isRevealing.value) return
+
+  prepareResultSound()
   
   isRevealing.value = true
   if (drawingTimer) clearInterval(drawingTimer)
@@ -314,6 +577,7 @@ const stopDraw = () => {
       isRevealing.value = false
       
       ElMessage.success(`第 ${currentBatch.value - 1} 轮抽取完成，成功抽取 ${finalNames.length} 人`)
+      playDrawCompleteSound()
       triggerConfetti()
     } else {
       // 混合渲染：前面显示最终名单，后面继续随机滚动
@@ -448,9 +712,16 @@ onUnmounted(() => {
   window.removeEventListener('keydown', handleKeyDown)
   if (drawingTimer) clearInterval(drawingTimer)
   if (revealTimer) clearInterval(revealTimer)
+  clearCustomResultSound(false)
+  if (audioContext && audioContext.state !== 'closed') {
+    audioContext.close().catch((error) => {
+      console.warn('抽签音效上下文关闭失败', error)
+    })
+  }
 })
 
 const currentYear = computed(() => new Date().getFullYear())
+const appVersion = __APP_VERSION__
 </script>
 
 <template>
@@ -589,7 +860,7 @@ const currentYear = computed(() => new Date().getFullYear())
 
         <!-- 右侧：版权署名标注 (抽签时暗化处理) -->
         <div class="bottom-bar-right" :class="{ 'dimmed-info': isDrawing }">
-          <span class="bottom-copyright">© {{ currentYear }} 信息科组小李 · 抽签系统</span>
+          <span class="bottom-copyright">© {{ currentYear }} 信息科组小李 · 抽签系统 v{{ appVersion }}</span>
         </div>
       </footer>
     </div>
@@ -677,6 +948,41 @@ const currentYear = computed(() => new Date().getFullYear())
           </div>
         </div>
 
+        <!-- 结束音效 -->
+        <div class="settings-section">
+          <h3 class="section-title"><el-icon><VideoPlay /></el-icon> 结束音效</h3>
+          <div class="sound-panel-box">
+            <div class="sound-current-row">
+              <span class="sound-label">当前音效</span>
+              <span
+                class="sound-name"
+                :class="{ 'is-custom': hasCustomResultSound }"
+                :title="resultSoundLabel"
+              >
+                {{ resultSoundLabel }}
+              </span>
+            </div>
+            <div class="sound-action-row">
+              <el-button size="small" type="primary" @click="triggerAudioFileSelect" :disabled="isDrawing">
+                <el-icon><Upload /></el-icon> 选择 MP3
+              </el-button>
+              <input
+                type="file"
+                ref="audioFileInputRef"
+                @change="handleAudioFileImport"
+                accept=".mp3,audio/mpeg"
+                style="display: none"
+              />
+              <el-button size="small" @click="previewResultSound" :disabled="isDrawing">
+                <el-icon><VideoPlay /></el-icon> 试听
+              </el-button>
+              <el-button size="small" @click="clearCustomResultSound" :disabled="isDrawing || !hasCustomResultSound">
+                <el-icon><Refresh /></el-icon> 合成音
+              </el-button>
+            </div>
+          </div>
+        </div>
+
         <!-- 功能按钮 -->
         <div class="settings-section">
           <h3 class="section-title"><el-icon><Refresh /></el-icon> 数据重置与导出</h3>
@@ -715,7 +1021,7 @@ const currentYear = computed(() => new Date().getFullYear())
         
         <!-- 页脚 -->
         <footer class="drawer-footer-copyright">
-          <span>© {{ currentYear }} 信息科组小李 · 抽签系统</span>
+          <span>© {{ currentYear }} 信息科组小李 · 抽签系统 v{{ appVersion }}</span>
         </footer>
       </div>
     </el-drawer>
@@ -1378,6 +1684,59 @@ const currentYear = computed(() => new Date().getFullYear())
   color: #34c759;
   background: rgba(52, 199, 89, 0.05);
   border-color: rgba(52, 199, 89, 0.1);
+}
+
+/* 结束音效设置 */
+.sound-panel-box {
+  background: rgba(0, 0, 0, 0.02);
+  border: 1px solid rgba(0, 0, 0, 0.03);
+  border-radius: 14px;
+  padding: 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.sound-current-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sound-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #515154;
+  flex-shrink: 0;
+}
+
+.sound-name {
+  min-width: 0;
+  max-width: 230px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #ffffff;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  color: #1d1d1f;
+  padding: 4px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.sound-name.is-custom {
+  color: #007aff;
+  background: rgba(0, 122, 255, 0.05);
+  border-color: rgba(0, 122, 255, 0.1);
+}
+
+.sound-action-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 /* 操作区域 */
