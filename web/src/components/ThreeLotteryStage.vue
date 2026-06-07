@@ -19,6 +19,10 @@ const props = defineProps({
     type: Boolean,
     default: false
   },
+  isBursting: {
+    type: Boolean,
+    default: false
+  },
   revealedCount: {
     type: Number,
     default: 0
@@ -77,16 +81,20 @@ let ringGroup = null
 let tunnelGroup = null
 let starField = null
 let fusionCore = null
+let burstParticles = null
 let frameId = 0
 let resizeObserver = null
 let clock = null
 let phaseTimer = 0
 let shuffleTimer = 0
+let burstStartTime = 0
 let lastDeckKey = ''
 let labelCards = []
 let ringGeometry = null
 let coreGeometry = null
+let burstParticleData = []
 const labelWorldPosition = new THREE.Vector3()
+const burstParticleCount = 180
 
 const sampleNames = (list, limit, randomize = false) => {
   const source = list.filter(Boolean)
@@ -200,6 +208,15 @@ const enterFusion = () => {
   rebuildDeck(sampleNames(props.poolNames.length > 0 ? props.poolNames : props.names, orbitLabelCount, true), 'fusion')
 }
 
+const enterBurst = () => {
+  clearPhaseTimer()
+  clearShuffleTimer()
+  setPhase('burst')
+  burstStartTime = clock?.elapsedTime ?? 0
+  resetBurstParticles()
+  rebuildDeck(sampleNames(props.names.length > 0 ? props.names : props.poolNames, orbitLabelCount, true), 'burst')
+}
+
 const enterResult = () => {
   clearPhaseTimer()
   clearShuffleTimer()
@@ -219,7 +236,7 @@ const makeLabelCanvas = (name, mode, index, variant = 'sharp') => {
   if (!context) return canvas
 
   const hue = (index * 29) % 360
-  const isAnonymous = mode === 'drawing' || mode === 'fusion'
+  const isAnonymous = mode === 'drawing' || mode === 'fusion' || mode === 'burst'
   const isResult = mode === 'result'
   const isBlurred = variant === 'blurred'
   const gradient = context.createLinearGradient(0, 0, width, height)
@@ -316,13 +333,24 @@ const rebuildDeck = (names, mode) => {
     const material = new THREE.SpriteMaterial({
       map: sharpTexture,
       transparent: true,
-      opacity: mode === 'intake' ? 0.28 : mode === 'drawing' ? 0.72 : 0.88,
-      blending: mode === 'drawing' || mode === 'fusion' ? THREE.AdditiveBlending : THREE.NormalBlending,
+      opacity: mode === 'intake' ? 0.28 : mode === 'burst' ? 0 : mode === 'drawing' ? 0.72 : 0.88,
+      blending: mode === 'drawing' || mode === 'fusion' || mode === 'burst' ? THREE.AdditiveBlending : THREE.NormalBlending,
       depthWrite: false
     })
     const sprite = new THREE.Sprite(material)
-    const target = getSpherePosition(index, names.length)
-    const start = mode === 'intake' ? getCenterBurstPosition(index) : target.clone()
+    const centerPoint = new THREE.Vector3(
+      (Math.random() - 0.5) * 0.42,
+      (Math.random() - 0.5) * 0.26,
+      -0.28 + Math.random() * 0.32
+    )
+    const target = mode === 'burst'
+      ? getBurstTargetPosition(index, names.length)
+      : getSpherePosition(index, names.length)
+    const start = mode === 'intake'
+      ? getCenterBurstPosition(index)
+      : mode === 'burst'
+        ? centerPoint.clone()
+        : target.clone()
 
     sprite.position.copy(start)
     sprite.scale.set(1.5, 0.56, 1)
@@ -334,11 +362,7 @@ const rebuildDeck = (names, mode) => {
       nameFade: 1,
       depthMode: 'sharp',
       start,
-      centerPoint: new THREE.Vector3(
-        (Math.random() - 0.5) * 0.42,
-        (Math.random() - 0.5) * 0.26,
-        -0.28 + Math.random() * 0.32
-      ),
+      centerPoint,
       target,
       fusionTarget: new THREE.Vector3(
         (Math.random() - 0.5) * 0.92,
@@ -444,6 +468,28 @@ const getCenterBurstPosition = (index) => {
   )
 }
 
+const getBurstTargetPosition = (index, count) => {
+  const columns = Math.min(9, Math.max(3, Math.ceil(Math.sqrt(Math.max(count, 1)) * 1.35)))
+  const rows = Math.ceil(Math.max(count, 1) / columns)
+  const column = index % columns
+  const row = Math.floor(index / columns)
+  const aspect = stageSize.value.width > 0 && stageSize.value.height > 0
+    ? stageSize.value.width / stageSize.value.height
+    : 16 / 9
+  const horizontalSpan = Math.min(8.8, 5.2 * aspect)
+  const verticalSpan = 4.35
+  const xRatio = columns === 1 ? 0 : column / (columns - 1) - 0.5
+  const yRatio = rows === 1 ? 0 : 0.5 - row / (rows - 1)
+  const x = xRatio * horizontalSpan + (Math.random() - 0.5) * 0.34
+  const y = yRatio * verticalSpan + (Math.random() - 0.5) * 0.26
+
+  return new THREE.Vector3(
+    x,
+    y,
+    2.05 + (index % 4) * 0.18 + Math.random() * 0.46
+  )
+}
+
 const createStarField = () => {
   const positions = []
   const colors = []
@@ -540,6 +586,67 @@ const createFusionCore = () => {
   scene.add(fusionCore)
 }
 
+const createBurstParticles = () => {
+  const positions = new Float32Array(burstParticleCount * 3)
+  const colors = new Float32Array(burstParticleCount * 3)
+  const color = new THREE.Color()
+
+  for (let i = 0; i < burstParticleCount; i += 1) {
+    color.setHSL(i % 3 === 0 ? 0.13 : i % 3 === 1 ? 0.56 : 0.46, 0.86, 0.66)
+    colors[i * 3] = color.r
+    colors[i * 3 + 1] = color.g
+    colors[i * 3 + 2] = color.b
+  }
+
+  const geometry = new THREE.BufferGeometry()
+  geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+  geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+
+  const material = new THREE.PointsMaterial({
+    size: 0.075,
+    vertexColors: true,
+    transparent: true,
+    opacity: 0,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false
+  })
+
+  burstParticles = new THREE.Points(geometry, material)
+  burstParticles.visible = false
+  scene.add(burstParticles)
+}
+
+const resetBurstParticles = () => {
+  if (!burstParticles) return
+
+  const positionAttribute = burstParticles.geometry.getAttribute('position')
+  const positions = positionAttribute.array
+  burstParticleData = []
+
+  for (let i = 0; i < burstParticleCount; i += 1) {
+    const spread = 4.8 + Math.random() * 2.8
+    const direction = new THREE.Vector3(
+      (Math.random() - 0.5) * 1.9,
+      (Math.random() - 0.5) * 1.16,
+      1 + Math.random() * 0.45
+    ).normalize()
+
+    positions[i * 3] = 0
+    positions[i * 3 + 1] = 0
+    positions[i * 3 + 2] = 0
+    burstParticleData.push({
+      direction,
+      spread,
+      delay: Math.random() * 0.07
+    })
+  }
+
+  positionAttribute.needsUpdate = true
+  burstParticles.rotation.z = Math.random() * Math.PI
+  burstParticles.material.opacity = 0
+  burstParticles.visible = true
+}
+
 const initScene = () => {
   const canvas = canvasRef.value
   const stage = stageRef.value
@@ -565,6 +672,7 @@ const initScene = () => {
     createRings()
     createTunnel()
     createFusionCore()
+    createBurstParticles()
     resizeRenderer()
     syncPhaseFromProps(true)
     animate()
@@ -592,6 +700,11 @@ const resizeRenderer = () => {
 }
 
 const syncPhaseFromProps = (initial = false) => {
+  if (props.isBursting) {
+    enterBurst()
+    return
+  }
+
   if (props.isRevealing) {
     enterFusion()
     return
@@ -631,6 +744,8 @@ const animate = () => {
   const phaseName = phase.value
   const spinSpeed = phaseName === 'drawing'
     ? 0.07
+    : phaseName === 'burst'
+      ? 0.018
     : phaseName === 'fusion'
       ? 0.045
       : phaseName === 'intake'
@@ -642,30 +757,31 @@ const animate = () => {
 
   if (ringGroup) {
     ringGroup.children.forEach((ring, index) => {
-      ring.rotation.z += ring.userData.speed * (phaseName === 'drawing' ? 4.8 : phaseName === 'fusion' ? 6 : 1.5)
+      ring.rotation.z += ring.userData.speed * (phaseName === 'drawing' ? 4.8 : phaseName === 'burst' ? 7.5 : phaseName === 'fusion' ? 6 : 1.5)
       ring.rotation.y += 0.0025 + index * 0.0008
-      ring.material.opacity = phaseName === 'empty' ? 0.48 : phaseName === 'fusion' ? 0.72 : 0.38
+      ring.material.opacity = phaseName === 'empty' ? 0.48 : phaseName === 'burst' ? 0.86 : phaseName === 'fusion' ? 0.72 : 0.38
     })
   }
 
   if (tunnelGroup) {
-    tunnelGroup.rotation.z -= phaseName === 'fusion' ? 0.026 : phaseName === 'drawing' ? 0.018 : 0.004
+    tunnelGroup.rotation.z -= phaseName === 'burst' ? 0.032 : phaseName === 'fusion' ? 0.026 : phaseName === 'drawing' ? 0.018 : 0.004
     tunnelGroup.children.forEach((beam) => {
-      beam.material.opacity = phaseName === 'fusion' ? 0.34 : phaseName === 'drawing' ? 0.24 : 0.1
+      beam.material.opacity = phaseName === 'burst' ? 0.42 : phaseName === 'fusion' ? 0.34 : phaseName === 'drawing' ? 0.24 : 0.1
     })
   }
 
   if (starField) {
     starField.rotation.y -= spinSpeed * 0.18
-    starField.material.opacity = phaseName === 'drawing' || phaseName === 'fusion' ? 0.82 : 0.56
+    starField.material.opacity = phaseName === 'drawing' || phaseName === 'fusion' || phaseName === 'burst' ? 0.82 : 0.56
   }
 
   updateLabels(delta, elapsed, phaseName)
   updateFusionCore(elapsed, phaseName)
+  updateBurstParticles(delta, elapsed, phaseName)
 
-  const targetZ = phaseName === 'fusion' ? 7.8 : phaseName === 'drawing' ? 9.2 : 10.4
+  const targetZ = phaseName === 'burst' ? 8.4 : phaseName === 'fusion' ? 7.8 : phaseName === 'drawing' ? 9.2 : 10.4
   camera.position.z += (targetZ - camera.position.z) * 0.045
-  camera.position.y += ((phaseName === 'fusion' ? 0.08 : 0.4) - camera.position.y) * 0.035
+  camera.position.y += ((phaseName === 'fusion' || phaseName === 'burst' ? 0.08 : 0.4) - camera.position.y) * 0.035
   camera.lookAt(0, 0, 0)
 
   renderer.render(scene, camera)
@@ -721,6 +837,22 @@ const updateLabels = (delta, elapsed, phaseName) => {
       return
     }
 
+    if (phaseName === 'burst') {
+      const progress = Math.min(age / 0.45, 1)
+      const spread = easeOutExpo(progress)
+      const flare = Math.sin(Math.min(progress, 1) * Math.PI)
+
+      mesh.position.lerpVectors(mesh.userData.start, mesh.userData.target, spread)
+      mesh.position.x += Math.sin(elapsed * 16 + seed) * flare * 0.12
+      mesh.position.y += Math.cos(elapsed * 14 + seed) * flare * 0.1
+      material.opacity = progress < 0.14
+        ? progress / 0.14
+        : Math.max(0.28, 0.96 - Math.max(0, progress - 0.72) * 1.9)
+      const scale = 0.46 + spread * 1.55 + flare * 0.28
+      mesh.scale.set(scale, scale * 0.38, 1)
+      return
+    }
+
     const base = mesh.userData.target
     mesh.position.copy(base)
     const scale = phaseName === 'result' ? 1.62 : 1.42
@@ -758,6 +890,15 @@ const updateLabels = (delta, elapsed, phaseName) => {
 const updateFusionCore = (elapsed, phaseName) => {
   if (!fusionCore) return
 
+  if (phaseName === 'burst') {
+    const age = Math.max(0, elapsed - burstStartTime)
+    const progress = easeOutExpo(Math.min(age / 0.31, 1))
+    const fade = Math.max(0, 1 - Math.max(0, age - 0.21) / 0.25)
+    fusionCore.material.opacity = 0.98 * fade
+    fusionCore.scale.setScalar(0.7 + progress * 3.2)
+    return
+  }
+
   if (phaseName === 'fusion') {
     const pulse = 1 + Math.sin(elapsed * 18) * 0.18
     fusionCore.material.opacity += (0.88 - fusionCore.material.opacity) * 0.12
@@ -767,6 +908,36 @@ const updateFusionCore = (elapsed, phaseName) => {
 
   fusionCore.material.opacity += (0 - fusionCore.material.opacity) * 0.08
   fusionCore.scale.setScalar(0.2)
+}
+
+const updateBurstParticles = (delta, elapsed, phaseName) => {
+  if (!burstParticles) return
+
+  if (phaseName !== 'burst') {
+    burstParticles.material.opacity += (0 - burstParticles.material.opacity) * 0.12
+    if (burstParticles.material.opacity < 0.01) burstParticles.visible = false
+    return
+  }
+
+  const age = Math.max(0, elapsed - burstStartTime)
+  const positionAttribute = burstParticles.geometry.getAttribute('position')
+  const positions = positionAttribute.array
+
+  burstParticleData.forEach((particle, index) => {
+    const localAge = Math.max(0, age - particle.delay)
+    const progress = easeOutExpo(Math.min(localAge / 0.38, 1))
+    const distance = particle.spread * progress
+    positions[index * 3] = particle.direction.x * distance
+    positions[index * 3 + 1] = particle.direction.y * distance - localAge * localAge * 0.28
+    positions[index * 3 + 2] = particle.direction.z * distance
+  })
+
+  positionAttribute.needsUpdate = true
+  burstParticles.visible = true
+  burstParticles.rotation.z += delta * 0.48
+  burstParticles.material.opacity = age < 0.06
+    ? age / 0.06
+    : Math.max(0, 1 - Math.max(0, age - 0.36) / 0.14)
 }
 
 const disposeLabels = () => {
@@ -819,6 +990,14 @@ const disposeScene = () => {
   coreGeometry?.dispose()
   coreGeometry = null
 
+  if (burstParticles) {
+    scene?.remove(burstParticles)
+    burstParticles.geometry.dispose()
+    burstParticles.material.dispose()
+    burstParticles = null
+  }
+  burstParticleData = []
+
   renderer?.dispose()
   renderer = null
   scene = null
@@ -851,11 +1030,15 @@ watch(() => props.isDrawing, (drawing, wasDrawing) => {
 })
 
 watch(() => props.isRevealing, (revealing) => {
-  if (revealing) enterFusion()
+  if (revealing && !props.isBursting) enterFusion()
+})
+
+watch(() => props.isBursting, (bursting) => {
+  if (bursting) enterBurst()
 })
 
 watch(() => [props.isDrawing, props.isRevealing, props.names.length], () => {
-  if (!props.isDrawing && !props.isRevealing && props.names.length > 0) {
+  if (!props.isDrawing && !props.isRevealing && !props.isBursting && props.names.length > 0) {
     enterResult()
   }
 })
@@ -879,6 +1062,7 @@ watch(() => [props.isDrawing, props.isRevealing, props.names.length], () => {
       <span v-else-if="phase === 'intake'">名单入场</span>
       <span v-else-if="phase === 'drawing'">高速抽取</span>
       <span v-else-if="phase === 'fusion'">结果聚合</span>
+      <span v-else-if="phase === 'burst'">结果展开</span>
       <span v-else-if="phase === 'clearing'">下一轮准备</span>
       <span v-else>本轮结果</span>
       <strong>{{ names.length || poolNames.length }} 人</strong>
@@ -910,6 +1094,19 @@ watch(() => [props.isDrawing, props.isRevealing, props.names.length], () => {
   border: 1px solid oklch(78% 0.08 225 / 0.32);
   box-shadow: inset 0 1px 0 oklch(100% 0 0 / 0.32), 0 18px 46px oklch(18% 0.08 260 / 0.24);
   isolation: isolate;
+}
+
+.three-stage::after {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none;
+  content: '';
+  opacity: 0;
+  background:
+    radial-gradient(circle at 50% 48%, oklch(99% 0.02 86 / 0.98), oklch(92% 0.14 82 / 0.74) 7%, transparent 24%),
+    repeating-conic-gradient(from -8deg at 50% 48%, oklch(99% 0.012 92 / 0.78) 0deg 5deg, transparent 8deg 24deg);
+  mix-blend-mode: screen;
 }
 
 .three-canvas {
@@ -973,6 +1170,21 @@ watch(() => [props.isDrawing, props.isRevealing, props.names.length], () => {
 .phase-fusion .stage-vortex {
   opacity: 1;
   animation: vortexFlash 1.1s ease-out infinite;
+}
+
+.phase-burst .stage-vortex {
+  opacity: 1;
+  background:
+    radial-gradient(circle at 50% 48%, oklch(100% 0 0 / 0.98), oklch(94% 0.13 84 / 0.74) 12%, transparent 34%),
+    radial-gradient(ellipse at 50% 48%, oklch(83% 0.13 78 / 0.38), transparent 62%);
+  animation: burstVortex 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.phase-burst::after {
+  background:
+    radial-gradient(circle at 50% 48%, oklch(100% 0 0 / 0.96), oklch(95% 0.09 88 / 0.82) 10%, transparent 31%),
+    radial-gradient(ellipse at 50% 48%, oklch(89% 0.11 82 / 0.5), transparent 58%);
+  animation: revealWhiteout 0.45s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 
 .three-stage-topline {
@@ -1111,6 +1323,44 @@ watch(() => [props.isDrawing, props.isRevealing, props.names.length], () => {
   100% {
     transform: scale(0.94) rotate(32deg);
     filter: brightness(1);
+  }
+}
+
+@keyframes burstVortex {
+  0% {
+    transform: scale(0.42);
+    filter: brightness(2.2) blur(0);
+  }
+  42% {
+    transform: scale(1.18);
+    filter: brightness(1.75) blur(0.5px);
+  }
+  100% {
+    transform: scale(1.95);
+    filter: brightness(1.05) blur(1.4px);
+  }
+}
+
+@keyframes revealWhiteout {
+  0% {
+    opacity: 0;
+    transform: scale(0.16);
+    filter: brightness(2.4) blur(0);
+  }
+  18% {
+    opacity: 0.96;
+    transform: scale(0.7);
+    filter: brightness(2) blur(0);
+  }
+  46% {
+    opacity: 0.58;
+    transform: scale(1.18);
+    filter: brightness(1.42) blur(0.8px);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.86);
+    filter: brightness(1) blur(2px);
   }
 }
 

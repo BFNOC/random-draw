@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import ThreeLotteryStage from './ThreeLotteryStage.vue'
+import { appVersion } from '../version'
 import { 
   Upload, 
   Setting, 
@@ -51,6 +52,7 @@ const isRevealing = ref(false)
 const revealedCount = ref(0)
 const droppingResultNames = ref([])
 const isDroppingPreviousResult = ref(false)
+const isThreeFinalBurst = ref(false)
 // 控制面板抽屉显示状态
 const drawerVisible = ref(false)
 // 控制台默认落在准备页，让首次使用路径更短。
@@ -62,6 +64,7 @@ const stageMode = ref('grid')
 let drawingTimer = null
 let revealTimer = null
 let droppingResultTimer = null
+let threeFinalBurstTimer = null
 let audioContext = null
 let customAudioObjectUrl = ''
 // 文件输入引用
@@ -109,7 +112,13 @@ const completedBatchCount = computed(() => Math.max(0, currentBatch.value - 1))
 const remainingCount = computed(() => Math.max(0, nameList.value.length - allPickedNames.value.length))
 const remainingNamesForStage = computed(() => nameList.value.filter(name => !allPickedNames.value.includes(name)))
 const isThreeStage = computed(() => stageMode.value === 'three')
-const showThreeStaticResult = computed(() => isThreeStage.value && pickedNames.value.length > 0 && !isDrawing.value && !isDroppingPreviousResult.value)
+const showThreeStaticResult = computed(() => {
+  return isThreeStage.value
+    && pickedNames.value.length > 0
+    && !isDrawing.value
+    && !isDroppingPreviousResult.value
+    && !isThreeFinalBurst.value
+})
 const showDroppingResult = computed(() => isThreeStage.value && isDroppingPreviousResult.value && droppingResultNames.value.length > 0)
 const threeResultNames = computed(() => showDroppingResult.value ? droppingResultNames.value : pickedNames.value)
 const canStartDraw = computed(() => {
@@ -667,6 +676,11 @@ const startDraw = () => {
   }
 
   prepareResultSound()
+  if (threeFinalBurstTimer) {
+    window.clearTimeout(threeFinalBurstTimer)
+    threeFinalBurstTimer = null
+  }
+  isThreeFinalBurst.value = false
 
   if (isThreeStage.value && pickedNames.value.length > 0 && !isDrawing.value) {
     droppingResultNames.value = [...pickedNames.value]
@@ -699,6 +713,38 @@ const startDraw = () => {
     }
     pickedNames.value = tempNames
   }, 50)
+}
+
+const finishDrawReveal = (finalNames) => {
+  pickedNames.value = [...finalNames]
+  allPickedNames.value = [...allPickedNames.value, ...finalNames]
+
+  historyRecords.value.unshift({
+    batch: currentBatch.value,
+    names: finalNames,
+  })
+
+  currentBatch.value += 1
+
+  const finishFeedback = () => {
+    isDrawing.value = false
+    isRevealing.value = false
+    isThreeFinalBurst.value = false
+    threeFinalBurstTimer = null
+
+    ElMessage.success(`第 ${currentBatch.value - 1} 轮抽取完成，成功抽取 ${finalNames.length} 人`)
+    playDrawCompleteSound()
+    triggerConfetti()
+  }
+
+  if (!isThreeStage.value) {
+    finishFeedback()
+    return
+  }
+
+  isThreeFinalBurst.value = true
+  if (threeFinalBurstTimer) window.clearTimeout(threeFinalBurstTimer)
+  threeFinalBurstTimer = window.setTimeout(finishFeedback, 460)
 }
 
 // 停止抽取 (逐个揭晓动画)
@@ -735,22 +781,8 @@ const stopDraw = () => {
     if (revealedCount.value >= totalItems) {
       // 揭晓完成
       clearInterval(revealTimer)
-      pickedNames.value = [...finalNames]
-      
-      allPickedNames.value = [...allPickedNames.value, ...finalNames]
-      
-      historyRecords.value.unshift({
-        batch: currentBatch.value,
-        names: finalNames,
-      })
-      
-      currentBatch.value += 1
-      isDrawing.value = false
-      isRevealing.value = false
-      
-      ElMessage.success(`第 ${currentBatch.value - 1} 轮抽取完成，成功抽取 ${finalNames.length} 人`)
-      playDrawCompleteSound()
-      triggerConfetti()
+      revealTimer = null
+      finishDrawReveal(finalNames)
     } else {
       // 混合渲染：前面显示最终名单，后面继续随机滚动
       const currentList = []
@@ -808,10 +840,13 @@ const clearResult = () => {
   isDrawing.value = false
   isRevealing.value = false
   isDroppingPreviousResult.value = false
+  isThreeFinalBurst.value = false
   droppingResultNames.value = []
   if (drawingTimer) clearInterval(drawingTimer)
   if (revealTimer) clearInterval(revealTimer)
   if (droppingResultTimer) window.clearTimeout(droppingResultTimer)
+  if (threeFinalBurstTimer) window.clearTimeout(threeFinalBurstTimer)
+  threeFinalBurstTimer = null
   ElMessage.success('数据重置成功')
 }
 
@@ -888,6 +923,7 @@ onUnmounted(() => {
   if (drawingTimer) clearInterval(drawingTimer)
   if (revealTimer) clearInterval(revealTimer)
   if (droppingResultTimer) window.clearTimeout(droppingResultTimer)
+  if (threeFinalBurstTimer) window.clearTimeout(threeFinalBurstTimer)
   clearCustomResultSound(false)
   if (audioContext && audioContext.state !== 'closed') {
     audioContext.close().catch((error) => {
@@ -897,7 +933,6 @@ onUnmounted(() => {
 })
 
 const currentYear = computed(() => new Date().getFullYear())
-const appVersion = __APP_VERSION__
 </script>
 
 <template>
@@ -929,6 +964,7 @@ const appVersion = __APP_VERSION__
             :pool-names="remainingNamesForStage"
             :is-drawing="isDrawing"
             :is-revealing="isRevealing"
+            :is-bursting="isThreeFinalBurst"
             :revealed-count="revealedCount"
             @import-list="triggerFileSelect('three')"
           />
