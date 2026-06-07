@@ -494,6 +494,11 @@ const startDraw = () => {
     ElMessage.warning('所有人员已被抽取完毕')
     return
   }
+
+  if (currentBatch.value > totalBatches.value) {
+    ElMessage.warning('已达到设置的总抽取轮数，请调整总轮数或重置后再开始')
+    return
+  }
   
   if (batchSize.value <= 0) {
     ElMessage.warning('抽取人数必须大于 0')

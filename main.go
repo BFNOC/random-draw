@@ -52,7 +52,7 @@ func main() {
 	}
 	defer listener.Close()
 
-	url := fmt.Sprintf("http://%s/", listener.Addr().String())
+	url := browserURL(listener.Addr())
 	server := &http.Server{
 		Handler:           cacheControl(http.FileServerFS(distFS)),
 		ReadHeaderTimeout: 5 * time.Second,
@@ -88,6 +88,19 @@ func cacheControl(next http.Handler) http.Handler {
 		w.Header().Set("Cache-Control", "no-store")
 		next.ServeHTTP(w, r)
 	})
+}
+
+func browserURL(addr net.Addr) string {
+	host, port, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return fmt.Sprintf("http://%s/", addr.String())
+	}
+
+	if host == "" || host == "::" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+
+	return fmt.Sprintf("http://%s/", net.JoinHostPort(host, port))
 }
 
 func openURL(url string) error {
