@@ -24,12 +24,15 @@ const nameList = computed(() => {
     .filter(name => name !== '')
 })
 
+const defaultBatchSize = 0
+const fallbackMaxPickCount = 100
+
 // 每批次抽取的人数
-const batchSize = ref(12)
-// 最大抽取人数
-const maxPickCount = computed(() => Math.max(1, nameList.value.length))
-// 有效的最小抽取人数
-const minPickCount = computed(() => nameList.value.length > 0 ? 1 : 1)
+const batchSize = ref(defaultBatchSize)
+// 输入框只限制一个宽松上限，真实可抽人数由开始抽签前的剩余名单校验兜住。
+const maxPickCount = computed(() => Math.max(fallbackMaxPickCount, nameList.value.length, batchSize.value))
+// 有效的最小抽取人数，默认 0 强制现场人员明确设置单批人数。
+const minPickCount = computed(() => 0)
 // 抽取结果
 const pickedNames = ref([])
 // 已抽取的所有人名（避免重复）
@@ -430,9 +433,6 @@ const handleKeyDown = (e) => {
     } else {
       startDraw()
     }
-  } else if (e.key === 'Escape' || e.code === 'Escape') {
-    e.preventDefault()
-    drawerVisible.value = !drawerVisible.value
   }
 }
 
@@ -462,27 +462,15 @@ const currentYear = computed(() => new Date().getFullYear())
     <div class="main-layout">
       <!-- 名单展示核心区 (自适应填充剩余空间) -->
       <main class="grid-content-area">
-        <!-- 空白状态下：居中面板（展示操作指南与实时关键参数） -->
+        <!-- 空白状态下：居中面板（展示实时关键参数） -->
         <div v-if="pickedNames.length === 0" class="empty-placeholder-container">
           <div class="center-dashboard-card">
-            <!-- 头部：操作指南 -->
+            <!-- 头部：待机状态 -->
             <div class="dashboard-header">
-              <el-icon class="guide-icon"><Setting /></el-icon>
-              <span class="guide-title">操作指南</span>
-            </div>
-            
-            <div class="guide-steps">
-              <div class="step-item">
-                <span class="step-num">1</span>
-                <span class="step-text">按 <strong>[Esc] 键</strong> 或点击左下角 <strong>设置</strong> 导入名单 (.txt) 并配置参数</span>
-              </div>
-              <div class="step-item">
-                <span class="step-num">2</span>
-                <span class="step-text">点击左下角 <strong>开始</strong> 或按 <strong>[空格键]</strong> 开始高速滚动名字</span>
-              </div>
-              <div class="step-item">
-                <span class="step-num">3</span>
-                <span class="step-text">点击左下角 <strong>停止</strong> 或按 <strong>[空格键]</strong> 逐个揭晓中签名单</span>
+              <el-icon class="dashboard-icon"><Aim /></el-icon>
+              <div class="standby-copy">
+                <span class="dashboard-title">{{ nameList.length > 0 ? '名单已就绪' : '抽签待开始' }}</span>
+                <span class="dashboard-subtitle">{{ nameList.length > 0 ? `${nameList.length} 人进入奖池` : '等待名单导入' }}</span>
               </div>
             </div>
             
@@ -495,7 +483,7 @@ const currentYear = computed(() => new Date().getFullYear())
                 <span class="stat-val highlight">{{ nameList.length }} 人</span>
               </div>
               <div class="stat-item">
-                <span class="stat-label">本轮抽取</span>
+                <span class="stat-label">单批人数</span>
                 <span class="stat-val highlight-blue">{{ batchSize }} 人</span>
               </div>
               <div class="stat-item">
@@ -555,7 +543,7 @@ const currentYear = computed(() => new Date().getFullYear())
               type="primary"
               class="icon-pill-btn start-btn"
               @click="startDraw"
-              :disabled="nameList.length === 0 || currentBatch > totalBatches || nameList.length - allPickedNames.length === 0"
+              :disabled="nameList.length === 0 || batchSize <= 0 || currentBatch > totalBatches || nameList.length - allPickedNames.length === 0"
             >
               <el-icon><VideoPlay /></el-icon>
               <span>开始</span>
@@ -597,7 +585,7 @@ const currentYear = computed(() => new Date().getFullYear())
 
         <!-- 右侧：版权署名标注 (抽签时暗化处理) -->
         <div class="bottom-bar-right" :class="{ 'dimmed-info': isDrawing }">
-          <span class="bottom-copyright">© 2026 信息科组小李 · 抽签系统</span>
+          <span class="bottom-copyright">© {{ currentYear }} 信息科组小李 · 抽签系统</span>
         </div>
       </footer>
     </div>
@@ -666,7 +654,6 @@ const currentYear = computed(() => new Date().getFullYear())
             :rows="9"
             placeholder="请输入名单，每行一个名字。或者点击导入按钮选择 .txt 文件。"
             :disabled="isDrawing"
-            @input="adjustPickCount"
             class="name-list-textarea"
           />
           
@@ -833,7 +820,7 @@ const currentYear = computed(() => new Date().getFullYear())
   justify-content: center;
 }
 
-/* 汇总信息卡片置于正中间 (改版为操作指南和状态明细表) */
+/* 汇总信息卡片置于正中间 */
 .center-dashboard-card {
   backdrop-filter: blur(30px);
   background: rgba(255, 255, 255, 0.75);
@@ -867,55 +854,29 @@ const currentYear = computed(() => new Date().getFullYear())
   margin-bottom: 22px;
 }
 
-.guide-icon {
+.dashboard-icon {
   font-size: 24px;
   color: #007aff;
 }
 
-.guide-title {
+.standby-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.dashboard-title {
   font-size: 24px;
   font-weight: 800;
   color: #1d1d1f;
   letter-spacing: -0.01em;
 }
 
-.guide-steps {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-  margin-bottom: 22px;
-}
-
-.step-item {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-}
-
-.step-num {
-  width: 20px;
-  height: 20px;
-  background: rgba(0, 122, 255, 0.1);
-  color: #007aff;
-  font-size: 11px;
-  font-weight: 700;
-  border-radius: 50%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  margin-top: 1px;
-}
-
-.step-text {
+.dashboard-subtitle {
   font-size: 14px;
-  line-height: 1.5;
-  color: #515154;
-}
-
-.step-text strong {
-  color: #1d1d1f;
-  font-weight: 700;
+  line-height: 1.4;
+  color: #86868b;
+  font-weight: 600;
 }
 
 .dashboard-divider {
