@@ -1,0 +1,176 @@
+/* 核心视口与字体设定 */
+.app-viewport,
+.tech-drawer,
+.quick-setup-dialog {
+  --color-ink: oklch(23% 0.028 252);
+  --color-ink-soft: oklch(38% 0.026 252);
+  --color-muted: oklch(52% 0.026 252);
+  --color-surface: oklch(98% 0.012 248);
+  --color-surface-strong: oklch(99% 0.008 248);
+  --color-surface-warm: oklch(96% 0.018 248);
+  --color-line: oklch(73% 0.035 248 / 0.28);
+  --color-line-strong: oklch(62% 0.05 248 / 0.34);
+  --color-primary: oklch(56% 0.17 255);
+  --color-primary-deep: oklch(47% 0.16 255);
+  --color-primary-soft: oklch(94% 0.04 255);
+  --color-sky: oklch(63% 0.12 205);
+  --color-sky-deep: oklch(49% 0.1 205);
+  --color-sky-soft: oklch(95% 0.035 205);
+  --color-jade: oklch(56% 0.105 166);
+  --color-danger: oklch(48% 0.18 28);
+  --color-danger-soft: oklch(93% 0.052 28);
+  --shadow-soft: 0 20px 56px oklch(28% 0.05 252 / 0.12);
+  --shadow-panel: 0 10px 28px oklch(28% 0.04 252 / 0.08);
+}
+
+.app-viewport {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--color-ink);
+}
+
+.app-viewport .el-button--primary,
+.tech-drawer .el-button--primary,
+.quick-setup-dialog .el-button--primary {
+  --el-button-bg-color: var(--color-primary);
+  --el-button-border-color: var(--color-primary);
+  --el-button-hover-bg-color: oklch(61% 0.17 255);
+  --el-button-hover-border-color: oklch(61% 0.17 255);
+  --el-button-active-bg-color: var(--color-primary-deep);
+  --el-button-active-border-color: var(--color-primary-deep);
+}
+
+.app-viewport .el-button--success,
+.tech-drawer .el-button--success,
+.quick-setup-dialog .el-button--success {
+  --el-button-bg-color: var(--color-jade);
+  --el-button-border-color: var(--color-jade);
+  --el-button-hover-bg-color: oklch(59% 0.1 160);
+  --el-button-hover-border-color: oklch(59% 0.1 160);
+}
+
+.app-viewport .el-button--danger,
+.tech-drawer .el-button--danger,
+.quick-setup-dialog .el-button--danger {
+  --el-button-bg-color: var(--color-danger);
+  --el-button-border-color: var(--color-danger);
+  --el-button-hover-bg-color: oklch(53% 0.18 28);
+  --el-button-hover-border-color: oklch(53% 0.18 28);
+}
+
+.app-viewport .el-input-number__decrease,
+.app-viewport .el-input-number__increase,
+.tech-drawer .el-input-number__decrease,
+.tech-drawer .el-input-number__increase,
+.quick-setup-dialog .el-input-number__decrease,
+.quick-setup-dialog .el-input-number__increase {
+  color: var(--color-ink-soft);
+}
+
+/* 浅色大屏背景：冷白底和弱网格保持清爽，不影响姓名可读性。 */
+.dynamic-background {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background:
+    linear-gradient(oklch(62% 0.035 248 / 0.1) 1px, transparent 1px),
+    linear-gradient(90deg, oklch(62% 0.035 248 / 0.1) 1px, transparent 1px),
+    linear-gradient(120deg, oklch(72% 0.12 255 / 0.13), transparent 42%),
+    linear-gradient(300deg, oklch(70% 0.09 166 / 0.09), transparent 38%),
+    var(--color-surface);
+  background-size: 44px 44px, 44px 44px, 100% 100%, 100% 100%, auto;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.dynamic-background::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(90deg, transparent 0%, oklch(72% 0.12 255 / 0.16) 48%, transparent 52%),
+    linear-gradient(180deg, oklch(99% 0.008 248 / 0.72), transparent 30%, oklch(98% 0.012 248 / 0.78));
+  opacity: 0.72;
+  pointer-events: none;
+}
+
+.ambient-glow {
+  position: absolute;
+  border-radius: 0;
+  filter: none;
+  opacity: 1;
+  mix-blend-mode: normal;
+  pointer-events: none;
+}
+
+.glow-1 {
+  width: 100%;
+  height: 2px;
+  top: 72px;
+  left: 0;
+  background: linear-gradient(90deg, transparent, oklch(67% 0.14 255 / 0.52), transparent);
+}
+
+.glow-2 {
+  width: 100%;
+  height: 34%;
+  bottom: 0;
+  right: 0;
+  background: linear-gradient(180deg, transparent, oklch(94% 0.026 248 / 0.86));
+}
+
+.glow-3 {
+  width: 34%;
+  height: 100%;
+  top: 0;
+  right: 7%;
+  background: linear-gradient(90deg, transparent, oklch(70% 0.09 166 / 0.08), transparent);
+}
+
+@keyframes floatAmbient {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(8%, 10%) scale(1.1);
+  }
+}
+
+/* 页面主要骨架 - 保持纵向独立比例 */
+.main-layout {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 20px 12px;
+  box-sizing: border-box;
+}
+
+/* 展示大区 */
+.grid-content-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.empty-placeholder-container {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
