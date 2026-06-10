@@ -119,7 +119,7 @@ const showStoredQuickSetupAfterImport = (context, storedItems) => {
   ElMessage.info('已找到上次保存的抽奖设置，可在弹窗中选择使用或调整')
   if (context.state.quickSetupTimer) window.clearTimeout(context.state.quickSetupTimer)
   context.state.quickSetupTimer = window.setTimeout(() => {
-    context.state.quickSetupVisible.value = true
+    context.openQuickSetupDialog()
     context.state.quickSetupTimer = null
   }, QUICK_SETUP_DELAY_MS)
 }
@@ -137,8 +137,8 @@ const applyStoredQuickSetupSettings = (context) => {
     return
   }
 
-  context.prizeItems.value = storedItems
-  context.state.quickSetupPrizeItems.value = storedItems
+  context.prizeItems.value = [...storedItems]
+  context.state.quickSetupPrizeItems.value = storedItems.map(item => ({ ...item }))
   context.state.quickSetupVisible.value = false
   ElMessage.success('已使用上次保存的抽奖设置')
 }
