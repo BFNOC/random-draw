@@ -116,6 +116,19 @@
     grid-template-columns: 1fr;
   }
 
+  .quick-setup-saved-list li {
+    grid-template-columns: 1fr;
+  }
+
+  .quick-setup-saved-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .quick-setup-saved-list span {
+    white-space: normal;
+  }
+
   .prize-add-btn {
     width: 100%;
   }

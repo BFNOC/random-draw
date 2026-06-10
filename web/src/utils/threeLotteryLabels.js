@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import { parseResultDisplayName } from './resultNameDisplay'
 
 export const createLabelTexture = (name, mode, index, variant = 'sharp') => {
   const texture = new THREE.CanvasTexture(makeLabelCanvas(name, mode, index, variant))
@@ -72,17 +73,40 @@ const drawAnonymousLines = (context) => {
 }
 
 const drawLabelName = (context, width, height, name, mode, variant) => {
-  const displayName = name.length > 8 ? `${name.slice(0, 8)}...` : name
-  const fontSize = displayName.length >= 5 ? 42 : displayName.length >= 4 ? 48 : 56
+  const displayName = parseResultDisplayName(name)
+
+  setLabelTextContext(context, mode, variant)
+  if (mode === 'result' && displayName.isNumbered) {
+    drawNumberedLabelName(context, width, height, displayName)
+    return
+  }
+
+  const text = displayName.raw.length > 8 ? `${displayName.raw.slice(0, 8)}...` : displayName.raw
+  const fontSize = text.length >= 5 ? 42 : text.length >= 4 ? 48 : 56
 
   context.font = `900 ${fontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
+  context.fillText(text, width / 2, height / 2 + 12)
+  context.filter = 'none'
+}
+
+const setLabelTextContext = (context, mode, variant) => {
   context.textAlign = 'center'
   context.textBaseline = 'middle'
   context.fillStyle = getLabelTextColor(mode, variant)
   context.shadowColor = mode === 'result' ? 'rgba(255, 255, 255, 0.8)' : 'rgba(93, 176, 218, 0.55)'
   context.shadowBlur = variant === 'blurred' ? 26 : mode === 'orbit' ? 8 : 4
   if (variant === 'blurred') context.filter = 'blur(3.2px)'
-  context.fillText(displayName, width / 2, height / 2 + 12)
+}
+
+const drawNumberedLabelName = (context, width, height, displayName) => {
+  const personName = displayName.personName.length > 6 ? `${displayName.personName.slice(0, 6)}...` : displayName.personName
+  const numberFontSize = displayName.number.length === 1 ? 66 : 60
+  const personFontSize = personName.length >= 5 ? 34 : personName.length >= 3 ? 40 : 46
+
+  context.font = `950 ${numberFontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
+  context.fillText(displayName.number, width / 2, height / 2 - 10)
+  context.font = `900 ${personFontSize}px "PingFang SC", "Microsoft YaHei", sans-serif`
+  context.fillText(personName, width / 2, height / 2 + 43)
   context.filter = 'none'
 }
 

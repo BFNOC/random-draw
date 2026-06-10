@@ -444,6 +444,39 @@
   z-index: 2;
 }
 
+.name-text--numbered {
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.04em;
+  line-height: 0.92;
+  white-space: normal;
+  text-overflow: clip;
+}
+
+.name-number {
+  max-width: 100%;
+  color: var(--color-primary-deep);
+  font-size: 1.36em;
+  font-weight: 950;
+  font-variant-numeric: tabular-nums;
+  line-height: 0.82;
+  white-space: nowrap;
+}
+
+.name-person {
+  max-width: 100%;
+  color: inherit;
+  font-size: 0.92em;
+  font-weight: 900;
+  line-height: 1.02;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .card-glow {
   position: absolute;
   top: 0;

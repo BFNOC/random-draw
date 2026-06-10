@@ -65,13 +65,18 @@ const {
 
 const {
   activeSettingsTab,
+  applyStoredQuickSetup,
+  clearStoredQuickSetup,
   confirmQuickSetup,
   drawerVisible,
   fileInputRef,
   handleFileImport,
+  hasStoredQuickSetup,
   openDrawer,
   quickSetupPrizeItems,
   quickSetupVisible,
+  storedQuickSetupPrizeItems,
+  storedQuickSetupWarning,
   syncLocalizedAriaLabels,
   triggerFileSelect
 } = useLotterySetup({
@@ -200,6 +205,11 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
     <QuickSetupDialog
       v-model:prize-items="quickSetupPrizeItems"
       v-model:visible="quickSetupVisible"
+      :has-stored-settings="hasStoredQuickSetup"
+      :stored-prize-items="storedQuickSetupPrizeItems"
+      :stored-settings-warning="storedQuickSetupWarning"
+      @apply-stored-settings="applyStoredQuickSetup"
+      @clear-stored-settings="clearStoredQuickSetup"
       @confirm="confirmQuickSetup"
       @sync-aria="syncLocalizedAriaLabels"
     />

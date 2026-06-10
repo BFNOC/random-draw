@@ -522,6 +522,84 @@
   font-weight: 750;
 }
 
+.quick-setup-saved-panel {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid oklch(63% 0.12 205 / 0.34);
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--color-sky-soft), oklch(99% 0.008 248 / 0.88));
+}
+
+.quick-setup-saved-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quick-setup-saved-header div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.quick-setup-saved-header strong {
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.quick-setup-saved-header span {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.quick-setup-saved-warning {
+  margin: 0;
+  color: var(--color-danger);
+  font-size: 13px;
+  line-height: 1.45;
+  font-weight: 800;
+}
+
+.quick-setup-saved-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quick-setup-saved-list li {
+  display: grid;
+  grid-template-columns: minmax(88px, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border: 1px solid var(--color-line);
+  border-radius: 8px;
+  background: var(--color-surface-strong);
+}
+
+.quick-setup-saved-list b {
+  min-width: 0;
+  color: var(--color-ink);
+  font-size: 14px;
+  font-weight: 900;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-setup-saved-list span {
+  color: var(--color-ink-soft);
+  font-size: 13px;
+  font-weight: 750;
+  white-space: nowrap;
+}
+
 .quick-setup-dialog .prize-plan-list {
   max-height: min(46vh, 340px);
   overflow-y: auto;
@@ -535,8 +613,16 @@
 
 .quick-setup-actions {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
   gap: 10px;
+  align-items: center;
+}
+
+.quick-setup-secondary-actions,
+.quick-setup-primary-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 /* 针对 Element Plus 组件的部分覆盖适配 */
