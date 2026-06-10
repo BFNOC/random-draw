@@ -1,5 +1,5 @@
 import { ElMessage } from 'element-plus'
-import { createPrizeItem } from './prizePlan'
+import { createPrizeItem, getValidPrizeItems } from './prizePlan'
 
 export const syncLocalizedNumberControls = async (nextTick) => {
   await nextTick()
@@ -9,28 +9,23 @@ export const syncLocalizedNumberControls = async (nextTick) => {
   setAriaLabel('.quick-setup-dialog .el-input-number__increase', '增加数字')
 }
 
-export const resetQuickSetupValues = ({ nameList, prizeItems, quickSetupDrawSize, quickSetupDrawTimes, quickSetupPrizeName }) => {
-  const firstPrize = prizeItems.value[0] || createPrizeItem({ name: '一等奖' })
-  quickSetupPrizeName.value = firstPrize.name || '一等奖'
-  quickSetupDrawSize.value = firstPrize.drawSize > 0 ? firstPrize.drawSize : Math.min(50, Math.max(1, nameList.value.length))
-  quickSetupDrawTimes.value = firstPrize.drawTimes > 0 ? firstPrize.drawTimes : 1
+export const resetQuickSetupPrizeItems = ({ prizeItems, quickSetupPrizeItems }) => {
+  const validItems = getValidPrizeItems(prizeItems.value)
+  quickSetupPrizeItems.value = validItems.length > 0
+    ? validItems.map(item => createPrizeItem(item))
+    : [createPrizeItem({ name: '一等奖', drawSize: 1, drawTimes: 1 })]
 }
 
-export const validateQuickSetup = ({ quickSetupDrawSize, quickSetupDrawTimes, quickSetupPrizeName, remainingCount }) => {
-  const prizeName = String(quickSetupPrizeName.value || '').trim()
-  const nextDrawSize = Number(quickSetupDrawSize.value)
-  const nextDrawTimes = Number(quickSetupDrawTimes.value)
+export const validateQuickSetupPrizeItems = ({ quickSetupPrizeItems, remainingCount }) => {
+  const validItems = getValidPrizeItems(quickSetupPrizeItems.value)
 
-  if (!prizeName) return warnInvalidSetup('奖项名称不能为空')
-  if (!Number.isFinite(nextDrawSize) || nextDrawSize <= 0) return warnInvalidSetup('每次抽取人数必须大于 0')
-  if (nextDrawSize > remainingCount.value) return warnInvalidSetup(`剩余可抽人数为 ${remainingCount.value} 人，请调小每次抽取人数`)
-  if (!Number.isFinite(nextDrawTimes) || nextDrawTimes <= 0) return warnInvalidSetup('抽取次数必须大于 0')
-
-  return {
-    prizeName,
-    nextDrawSize: Math.floor(nextDrawSize),
-    nextDrawTimes: Math.floor(nextDrawTimes)
+  if (validItems.length === 0) return warnInvalidSetup('请至少填写一个有效奖项')
+  const oversizedItem = validItems.find(item => item.drawSize > remainingCount.value)
+  if (oversizedItem) {
+    return warnInvalidSetup(`${oversizedItem.name} 每次需要 ${oversizedItem.drawSize} 人，当前剩余 ${remainingCount.value} 人`)
   }
+
+  return validItems.map(item => createPrizeItem(item))
 }
 
 const setAriaLabel = (selector, label) => {

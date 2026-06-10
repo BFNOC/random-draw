@@ -1,5 +1,5 @@
 <script setup>
-import { Refresh, Setting, VideoPause, VideoPlay } from '@element-plus/icons-vue'
+import { Download, Refresh, Setting, VideoPause, VideoPlay } from '@element-plus/icons-vue'
 
 defineProps({
   allPickedCount: {
@@ -27,6 +27,10 @@ defineProps({
     default: null
   },
   currentYear: {
+    type: Number,
+    required: true
+  },
+  historyCount: {
     type: Number,
     required: true
   },
@@ -60,7 +64,7 @@ defineProps({
   }
 })
 
-const emit = defineEmits(['open-drawer', 'reset', 'set-stage-mode', 'start-draw', 'stop-draw'])
+const emit = defineEmits(['export-history', 'open-drawer', 'reset', 'set-stage-mode', 'start-draw', 'stop-draw'])
 </script>
 
 <template>
@@ -89,6 +93,16 @@ const emit = defineEmits(['open-drawer', 'reset', 'set-stage-mode', 'start-draw'
         <el-button class="icon-pill-btn" @click="emit('open-drawer', 'prepare')">
           <el-icon><Setting /></el-icon>
           <span>设置</span>
+        </el-button>
+
+        <el-button
+          type="success"
+          class="icon-pill-btn export-btn"
+          :disabled="historyCount === 0"
+          @click="emit('export-history')"
+        >
+          <el-icon><Download /></el-icon>
+          <span>导出</span>
         </el-button>
 
         <el-button

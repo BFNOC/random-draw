@@ -514,19 +514,23 @@
   font-weight: 700;
 }
 
-.quick-setup-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 12px;
+.quick-setup-tip {
+  margin: -10px 0 0;
+  color: var(--color-primary-deep);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 750;
 }
 
-.quick-setup-field {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 800;
-  color: var(--color-ink-soft);
+.quick-setup-dialog .prize-plan-list {
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.quick-setup-dialog .prize-plan-head,
+.quick-setup-dialog .prize-plan-row {
+  grid-template-columns: minmax(150px, 1fr) 112px 112px 48px;
 }
 
 .quick-setup-actions {

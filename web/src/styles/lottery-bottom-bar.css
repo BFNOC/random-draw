@@ -99,6 +99,17 @@
   box-shadow: 0 9px 22px oklch(47% 0.16 255 / 0.26) !important;
 }
 
+.icon-pill-btn.export-btn {
+  background: linear-gradient(180deg, var(--color-jade), oklch(46% 0.095 166)) !important;
+  color: var(--color-surface-strong) !important;
+  border: none !important;
+  box-shadow: 0 7px 18px oklch(46% 0.095 166 / 0.18) !important;
+}
+
+.icon-pill-btn.export-btn:hover {
+  box-shadow: 0 9px 22px oklch(46% 0.095 166 / 0.24) !important;
+}
+
 .icon-pill-btn.stop-btn {
   background: linear-gradient(180deg, var(--color-danger), oklch(39% 0.16 27)) !important;
   color: var(--color-surface-strong) !important;

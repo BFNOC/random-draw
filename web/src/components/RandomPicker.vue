@@ -70,9 +70,7 @@ const {
   fileInputRef,
   handleFileImport,
   openDrawer,
-  quickSetupDrawSize,
-  quickSetupDrawTimes,
-  quickSetupPrizeName,
+  quickSetupPrizeItems,
   quickSetupVisible,
   syncLocalizedAriaLabels,
   triggerFileSelect
@@ -154,6 +152,7 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
         :current-batch="currentBatch"
         :current-year="currentYear"
         :current-prize-draw="currentPrizeDraw"
+        :history-count="historyRecords.length"
         :is-drawing="isDrawing"
         :is-revealing="isRevealing"
         :name-count="nameList.length"
@@ -161,6 +160,7 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
         :remaining-count="remainingCount"
         :stage-mode="stageMode"
         :total-batches="totalBatches"
+        @export-history="exportHistory"
         @open-drawer="openDrawer"
         @reset="handleResetConfirm"
         @set-stage-mode="setStageMode"
@@ -198,11 +198,8 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
     />
 
     <QuickSetupDialog
-      v-model:draw-size="quickSetupDrawSize"
-      v-model:draw-times="quickSetupDrawTimes"
-      v-model:prize-name="quickSetupPrizeName"
+      v-model:prize-items="quickSetupPrizeItems"
       v-model:visible="quickSetupVisible"
-      :remaining-count="remainingCount"
       @confirm="confirmQuickSetup"
       @sync-aria="syncLocalizedAriaLabels"
     />

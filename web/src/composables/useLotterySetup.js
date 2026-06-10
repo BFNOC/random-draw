@@ -2,8 +2,8 @@ import { nextTick, onUnmounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { QUICK_SETUP_DELAY_MS } from '../constants/lottery'
 import { isTextNameFile, readTextFile } from '../utils/fileImport'
-import { resetQuickSetupValues, syncLocalizedNumberControls, validateQuickSetup } from '../utils/lotterySetupHelpers'
-import { createPrizeItem, getValidPrizeItems } from '../utils/prizePlan'
+import { resetQuickSetupPrizeItems, syncLocalizedNumberControls, validateQuickSetupPrizeItems } from '../utils/lotterySetupHelpers'
+import { createDefaultPrizeItems, getValidPrizeItems } from '../utils/prizePlan'
 
 export const useLotterySetup = ({
   isThreeStage,
@@ -31,9 +31,7 @@ export const useLotterySetup = ({
     activeSettingsTab: state.activeSettingsTab,
     drawerVisible: state.drawerVisible,
     fileInputRef: state.fileInputRef,
-    quickSetupDrawSize: state.quickSetupDrawSize,
-    quickSetupDrawTimes: state.quickSetupDrawTimes,
-    quickSetupPrizeName: state.quickSetupPrizeName,
+    quickSetupPrizeItems: state.quickSetupPrizeItems,
     quickSetupVisible: state.quickSetupVisible,
     confirmQuickSetup,
     handleFileImport,
@@ -48,9 +46,7 @@ const createSetupState = () => ({
   drawerVisible: ref(false),
   fileInputRef: ref(null),
   pendingQuickSetupAfterImport: ref(false),
-  quickSetupDrawSize: ref(1),
-  quickSetupDrawTimes: ref(1),
-  quickSetupPrizeName: ref('一等奖'),
+  quickSetupPrizeItems: ref(createDefaultPrizeItems()),
   quickSetupTimer: null,
   quickSetupVisible: ref(false)
 })
@@ -67,12 +63,9 @@ const triggerSetupFileSelect = (state, mode = 'drawer') => {
 }
 
 const openQuickSetupDialog = (context, syncLocalizedAriaLabels) => {
-  resetQuickSetupValues({
-    nameList: context.nameList,
+  resetQuickSetupPrizeItems({
     prizeItems: context.prizeItems,
-    quickSetupDrawSize: context.state.quickSetupDrawSize,
-    quickSetupDrawTimes: context.state.quickSetupDrawTimes,
-    quickSetupPrizeName: context.state.quickSetupPrizeName
+    quickSetupPrizeItems: context.state.quickSetupPrizeItems
   })
   context.state.quickSetupVisible.value = true
   syncLocalizedAriaLabels()
@@ -92,21 +85,13 @@ const scheduleQuickSetupDialog = (context) => {
 }
 
 const confirmSetupDialog = (context) => {
-  const setup = validateQuickSetup({
-    quickSetupDrawSize: context.state.quickSetupDrawSize,
-    quickSetupDrawTimes: context.state.quickSetupDrawTimes,
-    quickSetupPrizeName: context.state.quickSetupPrizeName,
+  const nextPrizeItems = validateQuickSetupPrizeItems({
+    quickSetupPrizeItems: context.state.quickSetupPrizeItems,
     remainingCount: context.remainingCount
   })
-  if (!setup) return
+  if (!nextPrizeItems) return
 
-  context.prizeItems.value = [
-    createPrizeItem({
-      name: setup.prizeName,
-      drawSize: setup.nextDrawSize,
-      drawTimes: setup.nextDrawTimes
-    })
-  ]
+  context.prizeItems.value = nextPrizeItems
   context.state.quickSetupVisible.value = false
   ElMessage.success('奖项设置已就绪')
 }
