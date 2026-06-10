@@ -77,7 +77,8 @@
 }
 
 .drawer-tabs .el-tabs__header {
-  order: -1;
+  /* Element Plus 顶部标签页自身使用 column-reverse，保持默认排序避免标签栏被压到底部。 */
+  order: 0;
   margin: 0 0 18px;
 }
 
