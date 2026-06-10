@@ -1,6 +1,7 @@
 <script setup>
 import ThreeLotteryStage from '../three/ThreeLotteryStage.vue'
 import NameResultGrid from './NameResultGrid.vue'
+import PrizeResultBanner from './PrizeResultBanner.vue'
 import StandbyPanel from './StandbyPanel.vue'
 
 defineProps({
@@ -12,9 +13,17 @@ defineProps({
     type: Boolean,
     required: true
   },
+  completedPrizeDraw: {
+    type: Object,
+    default: null
+  },
   completedBatchCount: {
     type: Number,
     required: true
+  },
+  currentPrizeDraw: {
+    type: Object,
+    default: null
   },
   getNameStyle: {
     type: Function,
@@ -72,6 +81,10 @@ defineProps({
     type: Boolean,
     required: true
   },
+  stagePrizeDraw: {
+    type: Object,
+    default: null
+  },
   threeResultGridStyle: {
     type: Object,
     default: () => ({})
@@ -99,14 +112,19 @@ const emit = defineEmits(['import-list', 'open-drawer', 'start-draw'])
         :is-drawing="isDrawing"
         :is-revealing="isRevealing"
         :is-bursting="isThreeFinalBurst"
+        :prize-draw="stagePrizeDraw"
         :revealed-count="revealedCount"
         @import-list="emit('import-list', 'three')"
       />
       <div
         v-if="showThreeStaticResult || showDroppingResult"
-        class="three-original-result-layer"
+        class="three-original-result-layer has-prize-status"
         :class="{ 'is-dropping': showDroppingResult }"
       >
+        <PrizeResultBanner
+          :draw-info="showDroppingResult ? completedPrizeDraw : stagePrizeDraw"
+          :label="showDroppingResult ? '上一轮结果' : '本轮结果'"
+        />
         <NameResultGrid
           :names="threeResultNames"
           :grid-style="threeResultGridStyle"
@@ -121,6 +139,7 @@ const emit = defineEmits(['import-list', 'open-drawer', 'start-draw'])
         v-if="pickedNames.length === 0"
         :name-count="nameCount"
         :batch-size="batchSize"
+        :current-prize-draw="currentPrizeDraw"
         :remaining-count="remainingCount"
         :completed-batch-count="completedBatchCount"
         :total-batches="totalBatches"
@@ -130,7 +149,8 @@ const emit = defineEmits(['import-list', 'open-drawer', 'start-draw'])
         @start-draw="emit('start-draw')"
       />
 
-      <div v-else class="grid-animation-wrapper">
+      <div v-else class="grid-animation-wrapper has-prize-status">
+        <PrizeResultBanner :draw-info="stagePrizeDraw" :label="isDrawing ? '正在抽取' : '本轮结果'" />
         <NameResultGrid
           :names="pickedNames"
           :grid-style="gridStyle"

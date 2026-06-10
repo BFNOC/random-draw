@@ -9,19 +9,19 @@ const props = defineProps({
   activeTab: { type: String, required: true },
   allPickedCount: { type: Number, required: true },
   appVersion: { type: String, required: true },
-  batchSize: { type: Number, required: true },
   currentYear: { type: Number, required: true },
   hasCustomResultSound: { type: Boolean, required: true },
   historyRecords: { type: Array, default: () => [] },
   isDrawing: { type: Boolean, required: true },
-  maxPickCount: { type: Number, required: true },
-  minPickCount: { type: Number, required: true },
   nameCount: { type: Number, required: true },
   nameInput: { type: String, required: true },
+  plannedWinnerCount: { type: Number, required: true },
+  prizeItems: { type: Array, default: () => [] },
   readinessStatus: { type: String, required: true },
   remainingCount: { type: Number, required: true },
   resultSoundLabel: { type: String, required: true },
-  totalBatches: { type: Number, required: true },
+  totalDrawCount: { type: Number, required: true },
+  validPrizeCount: { type: Number, required: true },
   visible: { type: Boolean, required: true }
 })
 
@@ -35,9 +35,8 @@ const emit = defineEmits([
   'trigger-audio-file-select',
   'trigger-file-select',
   'update:activeTab',
-  'update:batchSize',
   'update:nameInput',
-  'update:totalBatches',
+  'update:prizeItems',
   'update:visible'
 ])
 
@@ -83,20 +82,19 @@ const activeTabModel = computed({
           </template>
           <DrawerPrepareTab
             :all-picked-count="allPickedCount"
-            :batch-size="batchSize"
             :is-drawing="isDrawing"
-            :max-pick-count="maxPickCount"
-            :min-pick-count="minPickCount"
             :name-count="nameCount"
             :name-input="nameInput"
+            :planned-winner-count="plannedWinnerCount"
+            :prize-items="prizeItems"
             :readiness-status="readinessStatus"
             :remaining-count="remainingCount"
-            :total-batches="totalBatches"
+            :total-draw-count="totalDrawCount"
+            :valid-prize-count="validPrizeCount"
             @clear-input="emit('clear-input')"
             @trigger-file-select="emit('trigger-file-select')"
-            @update:batch-size="value => emit('update:batchSize', value)"
             @update:name-input="value => emit('update:nameInput', value)"
-            @update:total-batches="value => emit('update:totalBatches', value)"
+            @update:prize-items="value => emit('update:prizeItems', value)"
           />
         </el-tab-pane>
 

@@ -3,18 +3,17 @@ import { ElMessage } from 'element-plus'
 import { QUICK_SETUP_DELAY_MS } from '../constants/lottery'
 import { isTextNameFile, readTextFile } from '../utils/fileImport'
 import { resetQuickSetupValues, syncLocalizedNumberControls, validateQuickSetup } from '../utils/lotterySetupHelpers'
+import { createPrizeItem, getValidPrizeItems } from '../utils/prizePlan'
 
 export const useLotterySetup = ({
-  adjustPickCount,
-  batchSize,
   isThreeStage,
   nameInput,
   nameList,
-  remainingCount,
-  totalBatches
+  prizeItems,
+  remainingCount
 }) => {
   const state = createSetupState()
-  const context = { adjustPickCount, batchSize, isThreeStage, nameInput, nameList, remainingCount, state, totalBatches }
+  const context = { isThreeStage, nameInput, nameList, prizeItems, remainingCount, state }
 
   const syncLocalizedAriaLabels = () => syncLocalizedNumberControls(nextTick)
   const openDrawer = tab => openSetupDrawer(state, syncLocalizedAriaLabels, tab)
@@ -32,8 +31,9 @@ export const useLotterySetup = ({
     activeSettingsTab: state.activeSettingsTab,
     drawerVisible: state.drawerVisible,
     fileInputRef: state.fileInputRef,
-    quickSetupBatchSize: state.quickSetupBatchSize,
-    quickSetupTotalBatches: state.quickSetupTotalBatches,
+    quickSetupDrawSize: state.quickSetupDrawSize,
+    quickSetupDrawTimes: state.quickSetupDrawTimes,
+    quickSetupPrizeName: state.quickSetupPrizeName,
     quickSetupVisible: state.quickSetupVisible,
     confirmQuickSetup,
     handleFileImport,
@@ -48,9 +48,10 @@ const createSetupState = () => ({
   drawerVisible: ref(false),
   fileInputRef: ref(null),
   pendingQuickSetupAfterImport: ref(false),
-  quickSetupBatchSize: ref(50),
+  quickSetupDrawSize: ref(1),
+  quickSetupDrawTimes: ref(1),
+  quickSetupPrizeName: ref('一等奖'),
   quickSetupTimer: null,
-  quickSetupTotalBatches: ref(4),
   quickSetupVisible: ref(false)
 })
 
@@ -67,11 +68,11 @@ const triggerSetupFileSelect = (state, mode = 'drawer') => {
 
 const openQuickSetupDialog = (context, syncLocalizedAriaLabels) => {
   resetQuickSetupValues({
-    batchSize: context.batchSize,
     nameList: context.nameList,
-    quickSetupBatchSize: context.state.quickSetupBatchSize,
-    quickSetupTotalBatches: context.state.quickSetupTotalBatches,
-    totalBatches: context.totalBatches
+    prizeItems: context.prizeItems,
+    quickSetupDrawSize: context.state.quickSetupDrawSize,
+    quickSetupDrawTimes: context.state.quickSetupDrawTimes,
+    quickSetupPrizeName: context.state.quickSetupPrizeName
   })
   context.state.quickSetupVisible.value = true
   syncLocalizedAriaLabels()
@@ -79,9 +80,10 @@ const openQuickSetupDialog = (context, syncLocalizedAriaLabels) => {
 
 const scheduleQuickSetupDialog = (context) => {
   const { isThreeStage, state } = context
-  if (!state.pendingQuickSetupAfterImport.value || !isThreeStage.value) return
-
+  if (!state.pendingQuickSetupAfterImport.value) return
   state.pendingQuickSetupAfterImport.value = false
+  if (!isThreeStage.value || getValidPrizeItems(context.prizeItems.value).length > 0) return
+
   if (state.quickSetupTimer) window.clearTimeout(state.quickSetupTimer)
   state.quickSetupTimer = window.setTimeout(() => {
     context.openQuickSetupDialog()
@@ -91,16 +93,22 @@ const scheduleQuickSetupDialog = (context) => {
 
 const confirmSetupDialog = (context) => {
   const setup = validateQuickSetup({
-    quickSetupBatchSize: context.state.quickSetupBatchSize,
-    quickSetupTotalBatches: context.state.quickSetupTotalBatches,
+    quickSetupDrawSize: context.state.quickSetupDrawSize,
+    quickSetupDrawTimes: context.state.quickSetupDrawTimes,
+    quickSetupPrizeName: context.state.quickSetupPrizeName,
     remainingCount: context.remainingCount
   })
   if (!setup) return
 
-  context.batchSize.value = setup.nextBatchSize
-  context.totalBatches.value = setup.nextTotalBatches
+  context.prizeItems.value = [
+    createPrizeItem({
+      name: setup.prizeName,
+      drawSize: setup.nextDrawSize,
+      drawTimes: setup.nextDrawTimes
+    })
+  ]
   context.state.quickSetupVisible.value = false
-  ElMessage.success('抽奖设置已就绪')
+  ElMessage.success('奖项设置已就绪')
 }
 
 const importNameFile = async (context, event) => {
@@ -115,7 +123,6 @@ const importNameFile = async (context, event) => {
 
   try {
     context.nameInput.value = await readTextFile(file)
-    context.adjustPickCount()
     ElMessage.success(`成功导入名单，共 ${context.nameList.value.length} 人`)
     scheduleQuickSetupDialog(context)
   } catch (error) {

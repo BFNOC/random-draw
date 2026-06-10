@@ -2,15 +2,19 @@
 import { computed } from 'vue'
 
 const props = defineProps({
-  batchSize: {
+  drawSize: {
     type: Number,
+    required: true
+  },
+  drawTimes: {
+    type: Number,
+    required: true
+  },
+  prizeName: {
+    type: String,
     required: true
   },
   remainingCount: {
-    type: Number,
-    required: true
-  },
-  totalBatches: {
     type: Number,
     required: true
   },
@@ -20,21 +24,33 @@ const props = defineProps({
   }
 })
 
-const emit = defineEmits(['confirm', 'sync-aria', 'update:batchSize', 'update:totalBatches', 'update:visible'])
+const emit = defineEmits([
+  'confirm',
+  'sync-aria',
+  'update:drawSize',
+  'update:drawTimes',
+  'update:prizeName',
+  'update:visible'
+])
 
 const visibleModel = computed({
   get: () => props.visible,
   set: value => emit('update:visible', value)
 })
 
-const batchSizeModel = computed({
-  get: () => props.batchSize,
-  set: value => emit('update:batchSize', value)
+const prizeNameModel = computed({
+  get: () => props.prizeName,
+  set: value => emit('update:prizeName', value)
 })
 
-const totalBatchesModel = computed({
-  get: () => props.totalBatches,
-  set: value => emit('update:totalBatches', value)
+const drawSizeModel = computed({
+  get: () => props.drawSize,
+  set: value => emit('update:drawSize', value)
+})
+
+const drawTimesModel = computed({
+  get: () => props.drawTimes,
+  set: value => emit('update:drawTimes', value)
 })
 </script>
 
@@ -50,27 +66,36 @@ const totalBatchesModel = computed({
     @opened="emit('sync-aria')"
   >
     <div class="quick-setup-body">
-      <p class="quick-setup-copy">名单已进入 3D 舞台，确认每轮抽取人数和总轮数后即可开始。</p>
+      <p class="quick-setup-copy">名单已进入 3D 舞台，先配置一个奖项，后续可在设置中继续添加。</p>
+      <label class="quick-setup-field" for="quick-prize-name-input">
+        <span>奖项名称</span>
+        <el-input
+          id="quick-prize-name-input"
+          v-model="prizeNameModel"
+          aria-label="奖项名称"
+          placeholder="如：一等奖"
+        />
+      </label>
       <div class="quick-setup-grid">
         <label class="quick-setup-field" for="quick-batch-size-input">
-          <span>每轮抽取</span>
+          <span>每次人数</span>
           <el-input-number
             id="quick-batch-size-input"
-            v-model="batchSizeModel"
+            v-model="drawSizeModel"
             :min="1"
             :max="Math.max(1, remainingCount)"
-            aria-label="每轮抽取人数"
+            aria-label="每次抽取人数"
             class="w-full"
           />
         </label>
         <label class="quick-setup-field" for="quick-total-batches-input">
-          <span>抽取轮数</span>
+          <span>抽取次数</span>
           <el-input-number
             id="quick-total-batches-input"
-            v-model="totalBatchesModel"
+            v-model="drawTimesModel"
             :min="1"
-            :max="100"
-            aria-label="抽取轮数"
+            :max="9999"
+            aria-label="抽取次数"
             class="w-full"
           />
         </label>

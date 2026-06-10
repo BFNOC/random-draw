@@ -86,9 +86,37 @@
     font-size: 12px;
   }
 
+  .prize-result-banner {
+    min-height: 72px;
+    grid-template-columns: auto minmax(0, 1fr);
+    gap: 8px 10px;
+    padding: 10px 12px;
+  }
+
+  .prize-result-name {
+    font-size: 20px;
+  }
+
+  .prize-result-meta,
+  .prize-result-count {
+    font-size: 13px;
+  }
+
   .form-row,
   .action-grid-buttons {
     grid-template-columns: 1fr;
     flex-direction: column;
+  }
+
+  .prize-plan-head {
+    display: none;
+  }
+
+  .prize-plan-row {
+    grid-template-columns: 1fr;
+  }
+
+  .prize-add-btn {
+    width: 100%;
   }
 }

@@ -14,6 +14,10 @@ defineProps({
     type: Number,
     required: true
   },
+  currentPrizeDraw: {
+    type: Object,
+    default: null
+  },
   nameCount: {
     type: Number,
     required: true
@@ -44,8 +48,15 @@ const emit = defineEmits(['open-drawer', 'start-draw'])
           {{ nameCount > 0 ? '名单已就绪' : '抽签待开始' }}
         </h1>
         <p class="dashboard-subtitle">
-          {{ nameCount > 0 ? `${nameCount} 人进入奖池，确认单批人数后即可开始。` : '先导入名单，再确认每轮抽取人数。' }}
+          {{ nameCount > 0 ? `${nameCount} 人进入奖池，配置奖项后即可开始。` : '先导入名单，再配置奖项名称、人数和次数。' }}
         </p>
+
+        <div v-if="currentPrizeDraw" class="standby-prize-chip" aria-label="当前奖项">
+          <span>当前</span>
+          <strong>{{ currentPrizeDraw.prizeName }}</strong>
+          <em>第 {{ currentPrizeDraw.roundIndex }} / {{ currentPrizeDraw.totalRounds }} 次</em>
+          <b>{{ currentPrizeDraw.drawSize }} 人</b>
+        </div>
 
         <div class="standby-actions" aria-label="抽签准备操作">
           <el-button
@@ -88,7 +99,7 @@ const emit = defineEmits(['open-drawer', 'start-draw'])
           <dd>{{ nameCount }} 人</dd>
         </div>
         <div>
-          <dt>单批</dt>
+          <dt>本次</dt>
           <dd>{{ batchSize }} 人</dd>
         </div>
         <div>
@@ -97,7 +108,7 @@ const emit = defineEmits(['open-drawer', 'start-draw'])
         </div>
         <div>
           <dt>进度</dt>
-          <dd>{{ completedBatchCount }} / {{ totalBatches }} 轮</dd>
+          <dd>{{ completedBatchCount }} / {{ totalBatches }} 次</dd>
         </div>
       </dl>
     </section>

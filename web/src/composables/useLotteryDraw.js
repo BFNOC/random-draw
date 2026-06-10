@@ -1,7 +1,6 @@
 import { onUnmounted } from 'vue'
 import { useLotteryState } from './useLotteryState'
 import {
-  adjustPickCount,
   clearInput,
   exportHistory,
   handleResetConfirm,
@@ -27,7 +26,6 @@ export const useLotteryDraw = ({ prepareResultSound, playDrawCompleteSound }) =>
 
   return {
     ...state,
-    adjustPickCount: () => adjustPickCount(state),
     clearInput: () => clearInput(context),
     exportHistory: () => exportHistory(state),
     handleResetConfirm: () => handleResetConfirm(context),

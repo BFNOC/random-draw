@@ -11,17 +11,10 @@ import {
 import { downloadTextFile } from './downloadText'
 import { pickRandomUniqueNames, shuffleNames } from './nameList'
 import { clearDrawingTimers, clearThreeTimers } from './lotteryTimers'
+import { getPrizeDrawTitle } from './prizePlan'
 
 export const setStageMode = (state, mode) => {
   state.stageMode.value = mode
-}
-
-export const adjustPickCount = (state) => {
-  const remaining = state.remainingCount.value
-  if (remaining > 0 && state.batchSize.value > remaining) state.batchSize.value = remaining
-  else if (state.nameList.value.length > 0 && state.batchSize.value > state.nameList.value.length) {
-    state.batchSize.value = state.nameList.value.length
-  }
 }
 
 export const startDraw = (context) => {
@@ -36,7 +29,7 @@ export const startDraw = (context) => {
   context.state.revealedCount.value = 0
   clearDrawingTimers(context.timers)
   context.timers.drawing = window.setInterval(() => {
-    context.state.pickedNames.value = pickRandomUniqueNames(remainingNames, context.state.batchSize.value)
+    context.state.pickedNames.value = pickRandomUniqueNames(remainingNames, context.state.currentPrizeDraw.value.drawSize)
   }, DRAWING_ROLL_INTERVAL_MS)
 }
 
@@ -72,7 +65,7 @@ export const clearResult = (context) => {
 
 export const handleResetConfirm = (context) => {
   ElMessageBox.confirm(
-    '确定要重置所有已抽取的名单和历史记录吗？此操作将清空大屏数据且不可撤销，请在现场谨慎操作。',
+    '确定要重置中奖结果和历史记录吗？名单与奖项设置会保留，此操作不可撤销。',
     '重置二次确认',
     { confirmButtonText: '确定重置', cancelButtonText: '取消', type: 'warning', buttonSize: 'default', boxType: 'confirm', center: true }
   ).then(() => clearResult(context)).catch(() => {})
@@ -90,22 +83,26 @@ export const exportHistory = (state) => {
   }
 
   const content = [...state.historyRecords.value].reverse().map(record => {
-    return `第 ${record.batch} 轮抽取记录：\n${record.names.join('\n')}`
+    return [
+      `第 ${record.batch} 次：${record.prizeName}（第 ${record.roundIndex}/${record.totalRounds} 次，抽取 ${record.names.length} 人）`,
+      record.names.join('\n')
+    ].join('\n')
   }).join('\n\n')
 
-  downloadTextFile(content, '抽签历史记录.txt')
-  ElMessage.success('历史记录导出成功')
+  downloadTextFile(content, '抽奖结果.txt')
+  ElMessage.success('抽奖结果导出成功')
 }
 
 export const validateStartDraw = (state, remainingNames) => {
   if (state.nameList.value.length === 0) return showStartWarning('请先导入或输入名单')
+  if (state.totalBatches.value === 0) return showStartWarning('请先添加至少一个有效奖项')
   if (remainingNames.length === 0) return showStartWarning('所有人员已被抽取完毕')
-  if (state.currentBatch.value > state.totalBatches.value) {
-    return showStartWarning('已达到设置的总抽取轮数，请调整总轮数或重置后再开始')
+  if (!state.currentPrizeDraw.value) {
+    return showStartWarning('所有奖项已抽取完成，请重置后再开始')
   }
-  if (state.batchSize.value <= 0) return showStartWarning('抽取人数必须大于 0')
-  if (state.batchSize.value > remainingNames.length) {
-    return showStartWarning(`剩余可抽人数为 ${remainingNames.length} 人，请在设置中调整单批人数`)
+  if (state.currentPrizeDraw.value.drawSize <= 0) return showStartWarning('本次抽取人数必须大于 0')
+  if (state.currentPrizeDraw.value.drawSize > remainingNames.length) {
+    return showStartWarning(`${getPrizeDrawTitle(state.currentPrizeDraw.value)} 需要 ${state.currentPrizeDraw.value.drawSize} 人，当前剩余 ${remainingNames.length} 人`)
   }
 
   return true
@@ -127,7 +124,7 @@ export const schedulePreviousResultDrop = (context) => {
 
 export const buildFinalNames = (state) => {
   const namesCopy = shuffleNames(state.remainingNamesForStage.value)
-  return namesCopy.slice(0, Math.min(state.batchSize.value, namesCopy.length))
+  return namesCopy.slice(0, Math.min(state.currentPrizeDraw.value.drawSize, namesCopy.length))
 }
 
 export const revealNextFrame = (context, finalNames) => {
@@ -157,27 +154,36 @@ export const buildRevealFrame = (state, finalNames) => {
 
 export const finishDrawReveal = (context, finalNames) => {
   const { state, timers } = context
+  const completedPrizeDraw = state.currentPrizeDraw.value
   state.pickedNames.value = [...finalNames]
   state.allPickedNames.value = [...state.allPickedNames.value, ...finalNames]
-  state.historyRecords.value.unshift({ batch: state.currentBatch.value, names: finalNames })
+  state.historyRecords.value.unshift({
+    batch: state.currentBatch.value,
+    prizeId: completedPrizeDraw.prizeId,
+    prizeName: completedPrizeDraw.prizeName,
+    roundIndex: completedPrizeDraw.roundIndex,
+    totalRounds: completedPrizeDraw.totalRounds,
+    drawSize: completedPrizeDraw.drawSize,
+    names: finalNames
+  })
   state.currentBatch.value += 1
 
   if (!state.isThreeStage.value) {
-    finishDrawFeedback(context, finalNames)
+    finishDrawFeedback(context, finalNames, completedPrizeDraw)
     return
   }
 
   state.isThreeFinalBurst.value = true
   if (timers.threeFinalBurst) window.clearTimeout(timers.threeFinalBurst)
-  timers.threeFinalBurst = window.setTimeout(() => finishDrawFeedback(context, finalNames), THREE_FINAL_BURST_MS)
+  timers.threeFinalBurst = window.setTimeout(() => finishDrawFeedback(context, finalNames, completedPrizeDraw), THREE_FINAL_BURST_MS)
 }
 
-export const finishDrawFeedback = (context, finalNames) => {
+export const finishDrawFeedback = (context, finalNames, completedPrizeDraw) => {
   context.state.isDrawing.value = false
   context.state.isRevealing.value = false
   context.state.isThreeFinalBurst.value = false
   context.timers.threeFinalBurst = null
-  ElMessage.success(`第 ${context.state.currentBatch.value - 1} 轮抽取完成，成功抽取 ${finalNames.length} 人`)
+  ElMessage.success(`${getPrizeDrawTitle(completedPrizeDraw)} 抽取完成，成功抽取 ${finalNames.length} 人`)
   context.sound.playDrawCompleteSound()
   triggerConfetti()
 }

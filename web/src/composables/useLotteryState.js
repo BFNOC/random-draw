@@ -1,6 +1,6 @@
 import { ref } from 'vue'
-import { DEFAULT_BATCH_SIZE, DEFAULT_TOTAL_BATCHES } from '../constants/lottery'
 import { createLotteryComputed } from '../utils/lotteryStateComputed'
+import { createDefaultPrizeItems } from '../utils/prizePlan'
 
 export const useLotteryState = () => {
   const baseState = createBaseLotteryState()
@@ -12,7 +12,6 @@ export const useLotteryState = () => {
 
 const createBaseLotteryState = () => ({
   allPickedNames: ref([]),
-  batchSize: ref(DEFAULT_BATCH_SIZE),
   currentBatch: ref(1),
   droppingResultNames: ref([]),
   historyRecords: ref([]),
@@ -22,7 +21,7 @@ const createBaseLotteryState = () => ({
   isThreeFinalBurst: ref(false),
   nameInput: ref(''),
   pickedNames: ref([]),
+  prizeItems: ref(createDefaultPrizeItems()),
   revealedCount: ref(0),
-  stageMode: ref('grid'),
-  totalBatches: ref(DEFAULT_TOTAL_BATCHES)
+  stageMode: ref('grid')
 })

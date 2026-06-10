@@ -26,11 +26,11 @@ const {
 
 const lottery = useLotteryDraw({ prepareResultSound, playDrawCompleteSound })
 const {
-  adjustPickCount,
   allPickedNames,
   batchSize,
   canStartDraw,
   clearInput,
+  completedPrizeDraw,
   completedBatchCount,
   currentBatch,
   exportHistory,
@@ -40,11 +40,11 @@ const {
   isRevealing,
   isThreeFinalBurst,
   isThreeStage,
-  maxPickCount,
-  minPickCount,
   nameInput,
   nameList,
   pickedNames,
+  plannedWinnerCount,
+  prizeItems,
   readinessStatus,
   remainingCount,
   remainingNamesForStage,
@@ -54,10 +54,13 @@ const {
   showDroppingResult,
   showThreeStaticResult,
   stageMode,
+  stagePrizeDraw,
   startDraw,
   stopDraw,
   threeResultNames,
-  totalBatches
+  totalBatches,
+  validPrizeCount,
+  currentPrizeDraw
 } = lottery
 
 const {
@@ -67,19 +70,18 @@ const {
   fileInputRef,
   handleFileImport,
   openDrawer,
-  quickSetupBatchSize,
-  quickSetupTotalBatches,
+  quickSetupDrawSize,
+  quickSetupDrawTimes,
+  quickSetupPrizeName,
   quickSetupVisible,
   syncLocalizedAriaLabels,
   triggerFileSelect
 } = useLotterySetup({
-  adjustPickCount,
-  batchSize,
   isThreeStage,
   nameInput,
   nameList,
+  prizeItems,
   remainingCount,
-  totalBatches
 })
 
 useLotteryKeyboard({ isDrawing, startDraw, stopDraw })
@@ -118,7 +120,9 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
       <LotteryStageView
         :batch-size="batchSize"
         :can-start-draw="canStartDraw"
+        :completed-prize-draw="completedPrizeDraw"
         :completed-batch-count="completedBatchCount"
+        :current-prize-draw="currentPrizeDraw"
         :get-name-style="getNameStyle"
         :grid-style="gridStyle"
         :is-drawing="isDrawing"
@@ -133,6 +137,7 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
         :setup-steps="setupSteps"
         :show-dropping-result="showDroppingResult"
         :show-three-static-result="showThreeStaticResult"
+        :stage-prize-draw="stagePrizeDraw"
         :three-result-grid-style="threeResultGridStyle"
         :three-result-names="threeResultNames"
         :total-batches="totalBatches"
@@ -148,6 +153,7 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
         :can-start-draw="canStartDraw"
         :current-batch="currentBatch"
         :current-year="currentYear"
+        :current-prize-draw="currentPrizeDraw"
         :is-drawing="isDrawing"
         :is-revealing="isRevealing"
         :name-count="nameList.length"
@@ -165,9 +171,8 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
 
     <LotteryDrawer
       v-model:active-tab="activeSettingsTab"
-      v-model:batch-size="batchSize"
       v-model:name-input="nameInput"
-      v-model:total-batches="totalBatches"
+      v-model:prize-items="prizeItems"
       v-model:visible="drawerVisible"
       :all-picked-count="allPickedNames.length"
       :app-version="appVersion"
@@ -175,12 +180,13 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
       :has-custom-result-sound="hasCustomResultSound"
       :history-records="historyRecords"
       :is-drawing="isDrawing"
-      :max-pick-count="maxPickCount"
-      :min-pick-count="minPickCount"
       :name-count="nameList.length"
+      :planned-winner-count="plannedWinnerCount"
       :readiness-status="readinessStatus"
       :remaining-count="remainingCount"
       :result-sound-label="resultSoundLabel"
+      :total-draw-count="totalBatches"
+      :valid-prize-count="validPrizeCount"
       @clear-input="clearInput"
       @clear-sound="clearCustomResultSound"
       @export-history="exportHistory"
@@ -192,8 +198,9 @@ const threeResultGridStyle = computed(() => getGridStyleByCount(threeResultNames
     />
 
     <QuickSetupDialog
-      v-model:batch-size="quickSetupBatchSize"
-      v-model:total-batches="quickSetupTotalBatches"
+      v-model:draw-size="quickSetupDrawSize"
+      v-model:draw-times="quickSetupDrawTimes"
+      v-model:prize-name="quickSetupPrizeName"
       v-model:visible="quickSetupVisible"
       :remaining-count="remainingCount"
       @confirm="confirmQuickSetup"

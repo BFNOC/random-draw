@@ -1,4 +1,5 @@
 <script setup>
+import { computed } from 'vue'
 import { useThreeLotteryStage } from '../../composables/useThreeLotteryStage'
 import '../../styles/three-lottery-stage.css'
 
@@ -23,6 +24,10 @@ const props = defineProps({
     type: Array,
     default: () => []
   },
+  prizeDraw: {
+    type: Object,
+    default: null
+  },
   revealedCount: {
     type: Number,
     default: 0
@@ -31,6 +36,16 @@ const props = defineProps({
 
 const emit = defineEmits(['import-list'])
 const { canvasRef, phase, stageRef, webglUnavailable } = useThreeLotteryStage(props)
+
+const phaseLabel = computed(() => {
+  if (phase.value === 'empty') return '3D 舞台'
+  if (phase.value === 'intake') return '名单入场'
+  if (phase.value === 'drawing') return '高速抽取'
+  if (phase.value === 'fusion') return '结果聚合'
+  if (phase.value === 'burst') return '结果展开'
+  if (phase.value === 'clearing') return '下一轮准备'
+  return '本轮结果'
+})
 </script>
 
 <template>
@@ -47,14 +62,9 @@ const { canvasRef, phase, stageRef, webglUnavailable } = useThreeLotteryStage(pr
     <div class="stage-vortex" aria-hidden="true"></div>
 
     <div class="three-stage-topline">
-      <span v-if="phase === 'empty'">3D 舞台</span>
-      <span v-else-if="phase === 'intake'">名单入场</span>
-      <span v-else-if="phase === 'drawing'">高速抽取</span>
-      <span v-else-if="phase === 'fusion'">结果聚合</span>
-      <span v-else-if="phase === 'burst'">结果展开</span>
-      <span v-else-if="phase === 'clearing'">下一轮准备</span>
-      <span v-else>本轮结果</span>
-      <strong>{{ names.length || poolNames.length }} 人</strong>
+      <span>{{ prizeDraw ? prizeDraw.prizeName : phaseLabel }}</span>
+      <strong v-if="prizeDraw">第 {{ prizeDraw.roundIndex }}/{{ prizeDraw.totalRounds }} 次 · {{ prizeDraw.drawSize }} 人</strong>
+      <strong v-else>{{ names.length || poolNames.length }} 人</strong>
     </div>
 
     <div v-if="webglUnavailable" class="three-fallback">

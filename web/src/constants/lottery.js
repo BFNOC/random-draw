@@ -1,7 +1,3 @@
-export const DEFAULT_BATCH_SIZE = 0
-export const DEFAULT_TOTAL_BATCHES = 4
-export const FALLBACK_MAX_PICK_COUNT = 100
-
 export const DRAWING_ROLL_INTERVAL_MS = 50
 export const REVEAL_INTERVAL_MS = 60
 export const REVEAL_TARGET_STEPS = 15

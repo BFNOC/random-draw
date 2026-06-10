@@ -210,6 +210,67 @@
   gap: 14px;
 }
 
+.prize-plan-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.prize-plan-empty {
+  padding: 14px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-surface-warm);
+  color: var(--color-muted);
+  font-size: 13px;
+  font-weight: 650;
+}
+
+.prize-plan-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.prize-plan-head,
+.prize-plan-row {
+  display: grid;
+  grid-template-columns: minmax(118px, 1fr) 112px 112px 48px;
+  gap: 8px;
+  align-items: center;
+}
+
+.prize-plan-head {
+  color: var(--color-muted);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.prize-plan-row {
+  padding: 8px;
+  border: 1px solid var(--color-line);
+  border-radius: 10px;
+  background: var(--color-surface-warm);
+}
+
+.prize-plan-row .el-input-number {
+  width: 100%;
+}
+
+.prize-add-btn {
+  width: fit-content;
+  border-radius: 8px !important;
+  font-weight: 750 !important;
+}
+
+.settings-lock-hint {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: 12px;
+  line-height: 1.45;
+  font-weight: 650;
+}
+
 .form-item {
   display: flex;
   flex-direction: column;

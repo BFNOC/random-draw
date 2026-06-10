@@ -22,6 +22,10 @@ defineProps({
     type: Number,
     required: true
   },
+  currentPrizeDraw: {
+    type: Object,
+    default: null
+  },
   currentYear: {
     type: Number,
     required: true
@@ -146,9 +150,16 @@ const emit = defineEmits(['open-drawer', 'reset', 'set-stage-mode', 'start-draw'
 
     <div class="bottom-bar-center" :class="{ 'dimmed-info': isDrawing }">
       <div class="bottom-stats-container">
-        <span class="stat-capsule">进度 <span class="stat-highlight">{{ currentBatch - 1 }} / {{ totalBatches }}</span> 轮</span>
+        <span class="stat-capsule">进度 <span class="stat-highlight">{{ currentBatch - 1 }} / {{ totalBatches }}</span> 次</span>
         <span class="stat-divider">·</span>
-        <span class="stat-capsule">单批 <span class="stat-highlight">{{ batchSize }}</span> 人</span>
+        <span class="stat-capsule">
+          {{ isDrawing ? '当前' : '下次' }}
+          <span class="stat-highlight">
+            {{ currentPrizeDraw ? `${currentPrizeDraw.prizeName} ${currentPrizeDraw.roundIndex}/${currentPrizeDraw.totalRounds}` : '未设置' }}
+          </span>
+        </span>
+        <span class="stat-divider">·</span>
+        <span class="stat-capsule">本次 <span class="stat-highlight">{{ batchSize }}</span> 人</span>
         <span class="stat-divider">·</span>
         <span class="stat-capsule">奖池剩余 <span class="stat-highlight">{{ remainingCount }} / {{ nameCount }}</span> 人</span>
       </div>
